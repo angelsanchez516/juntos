@@ -1,0 +1,132 @@
+/**
+ * Hoja de estilos base de "Juntos".
+ *
+ * RESPONSABILIDAD: cargar Tailwind vía @tailwind e introducir los estilos
+ * globales que no conviene repetir en cada componente (fondo de la app,
+ * tipografía, scrollbars y utilidades de safe area en iOS).
+ *
+ * Related: tailwind.config.js (define los tokens que aquí se consumen)
+ */
+
+/* Las tres directivas de Tailwind: Preflight, utilidades y componentes. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Variables CSS expuestas para casos donde necesitemos el color en CSS puro
+ * (por ejemplo, degradados decorativos que no encajan como clase de Tailwind).
+ * Los valores replican tailwind.config.js; si cambias uno, cambia el otro.
+ * La alternativa preferida siempre es leer de categorias.js.
+ */
+@layer base {
+  :root {
+    --color-base: #070b10;
+    --color-sidebar: #0d121a;
+    --color-accent: #d1536c;
+    --color-accent-strong: #c62e53;
+    --color-surface: #f7fafc;
+  }
+
+  /*
+   * El fondo oscuro vive en <body> para que la barra lateral fija y la barra
+   * de navegación inferior compartan el mismo lienzo sin costuras visibles.
+   */
+  html {
+    /* Para que el desplazamiento suave no capture el scroll del calendario. */
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-base font-sans text-slate-100 antialiased;
+    /* Evita el rebote horizontal del body en móviles al rotar la pantalla. */
+    overflow-x: hidden;
+  }
+
+  /*
+   * Ajusta el foco visible al tema oscuro con un anillo de acento. Sólo se
+   * muestra cuando el usuario navega con teclado, no al hacer clic.
+   */
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-base;
+  }
+}
+
+@layer components {
+  /* Scrollbar discreta para las zonas con scroll propio (sidebar, listas). */
+  .scrollbar-fina::-webkit-scrollbar {
+    width: 4px;
+  }
+  .scrollbar-fina::-webkit-scrollbar-thumb {
+    @apply rounded-pill bg-white/15;
+  }
+  .scrollbar-fina::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  /*
+   * Alto máximo del panel de los modales.
+   *
+   * Va en CSS plano y con `@supports` por dos motivos, ambos verificados
+   * durante la implementación.
+   *
+   * El primero es el orden de la cascada. Con dos clases en el JSX,
+   * `max-h-[92vh] max-h-[92dvh]`, no funciona: Tailwind ordena las utilidades
+   * según su catálogo interno y compila el `dvh` ANTES que el `vh`, así que en
+   * los navegadores modernos —los únicos que necesitan el `dvh`— ganaba el
+   * `vh`. Un array de valores en `addUtilities` tampoco: Tailwind se queda
+   * solo con el último.
+   *
+   * El segundo es el minificador. Lightning CSS, que es el que trae Vite, borra
+   * la declaración `92vh` anterior al `92dvh` por considerarla redundante: sin
+   * `build.cssTarget` configurado da por hecho navegadores modernos. El
+   * resultado era un modal que, en un móvil de 2021, se salía por debajo del
+   * teclado. Con `@supports` el minificador no puede fusionar las dos reglas
+   * sin cambiar la semántica, y el fallback sobrevive.
+   *
+   * `dvh` ("dynamic viewport height") sigue al viewport visible, así que el
+   * modal se encoge cuando sube el teclado en pantalla. `vh` no lo hace: mide
+   * el viewport sin el teclado, y el pie con el botón "Guardar" acaba debajo
+   * de él. Todo lo anterior a 2022 se queda con el `vh`.
+   */
+  .alto-modal {
+    max-height: 92vh;
+  }
+
+  @supports (height: 100dvh) {
+    .alto-modal {
+      max-height: 92dvh;
+    }
+  }
+}
+
+@layer utilities {
+  /*
+   * Respeto la preferencia del sistema por reducir el movimiento. Importante
+   * porque las transiciones de página usan animate-[fadeIn].
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  /* Aparición suave usada al cambiar de página. */
+  .animate-aparecer {
+    animation: aparecer 0.25s ease-out both;
+  }
+
+  @keyframes aparecer {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}

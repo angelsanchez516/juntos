@@ -1,0 +1,437 @@
+# COMPONENTES — Juntos (Fase 1)
+
+Catálogo de componentes con sus props. Se actualiza al terminar cada paso.
+
+---
+
+## UI base (`src/components/ui/`)
+
+### `Logo`
+Marca de la aplicación: nombre cursivo "Juntos", corazón de acento y tagline opcional.
+
+| Prop | Tipo | Obligatoria | Por defecto | Descripción |
+|---|---|---|---|---|
+| `tamano` | `'sm' \| 'md' \| 'lg'` | No | `'md'` | Escala visual del logo. |
+| `mostrarTagline` | `boolean` | No | `false` | Muestra "Tus momentos, siempre". |
+| `className` | `string` | No | `''` | Clases extra del contenedor. |
+
+```jsx
+<Logo tamano="lg" mostrarTagline />
+```
+
+### `Boton`
+Botón con variantes del acento del mockup.
+
+| Prop | Tipo | Obligatoria | Por defecto | Descripción |
+|---|---|---|---|---|
+| `children` | `ReactNode` | Sí | — | Contenido. |
+| `variante` | `'primario' \| 'secundario' \| 'fantasma'` | No | `'primario'` | Estilo visual. |
+| `tamano` | `'sm' \| 'md' \| 'lg'` | No | `'md'` | Alto del botón. |
+| `cargando` | `boolean` | No | `false` | Spinner + deshabilitado. |
+| `soloIcono` | `boolean` | No | `false` | Cuadra el botón para un icono. |
+| `tipo` | `string` | No | `'button'` | Atributo `type`. |
+| `disabled` | `boolean` | No | `false` | Deshabilita. |
+| `onClick` | `() => void` | No | — | Gestor de clic. |
+| `ariaLabel` | `string` | No | — | Texto accesible (solo icono). |
+| `className` | `string` | No | `''` | Clases extra. |
+
+```jsx
+<Boton variante="primario" onClick={abrirModal}>Agregar evento</Boton>
+```
+
+### `Chip`
+Etiqueta o filtro de categoría. El color se aplica con `style` leyendo `src/utils/categorias.js` (fuente de verdad de los hex).
+
+| Prop | Tipo | Obligatoria | Por defecto | Descripción |
+|---|---|---|---|---|
+| `label` | `string` | No | — | Texto visible (si no se pasa `children`). |
+| `color` | `string` | No | — | Color principal (hex). |
+| `fondo` | `string` | No | — | Color de fondo (hex). |
+| `Icon` | `ComponentType` | No | — | Icono a la izquierda. |
+| `seleccionado` | `boolean` | No | `false` | Invierte fondo/texto (activo). |
+| `soloPunto` | `boolean` | No | `false` | Solo el punto de color. |
+| `conMuestra` | `boolean` | No | `true` | Punto delante del texto. |
+| `onClick` | `() => void` | No | — | Convierte en botón seleccionable. |
+| `className` | `string` | No | `''` | Clases extra. |
+| `children` | `ReactNode` | No | — | Contenido alternativo a `label`. |
+
+```jsx
+<Chip label="Cita" color="#7B22CA" fondo="#F1F0FC" />
+```
+
+### `Modal`
+Diálogo superpuesto accesible (portal, Escape, velo, bloqueo de scroll, foco).
+
+| Prop | Tipo | Obligatoria | Por defecto | Descripción |
+|---|---|---|---|---|
+| `abierto` | `boolean` | Sí | — | Visible desde el padre. |
+| `onCerrar` | `() => void` | Sí | — | Escape / velo / "X". |
+| `titulo` | `string` | Sí | — | Título del diálogo. |
+| `descripcion` | `string` | No | — | Texto secundario. |
+| `children` | `ReactNode` | Sí | — | Contenido. |
+| `pie` | `ReactNode` | No | — | Barra de acciones. |
+| `ancho` | `'sm' \| 'md' \| 'lg'` | No | `'md'` | Ancho máximo. |
+| `className` | `string` | No | `''` | Clases extra del panel. |
+
+```jsx
+<Modal abierto={abierto} onCerrar={cerrar} titulo="Agregar evento" pie={<Boton>Guardar</Boton>}>
+  {/* formulario */}
+</Modal>
+```
+
+#### Foco, y por qué está repartido en dos efectos
+
+El componente cumple cinco cosas de accesibilidad, y dos de ellas usan hooks
+distintos a propósito:
+
+- **Anuncio.** El panel se nombra con `aria-labelledby` apuntando al `h2`, no
+  con `aria-label`. Con `aria-label` el lector anuncia el texto del atributo y
+  el `h2` real se lee como contenido suelto.
+- **Foco inicial** (`useLayoutEffect`). Va al panel para que el lector anuncie
+  el título, pero **solo si el contenido no ha enfocado ya algo dentro**: el
+  formulario pone el foco en su primer campo, y enfocarlo sin mirar se lo
+  quitaría.
+- **Captura del disparador** (mismo `useLayoutEffect`). Se guarda qué elemento
+  tenía el foco para devolvérselo al cerrar. Es un efecto de diseño y no uno
+  normal por un motivo concreto: React ejecuta los efectos de abajo arriba, así
+  que un efecto normal del `Modal` se aplicaría **después** de que el formulario
+  enfocara su primer campo, y se guardaría el input del formulario en lugar del
+  botón que abrió el modal. Al cerrar, el foco volvería a un nodo que ya no
+  existe y quedaría en `body`.
+- **Trampa de foco** (evento `keydown` en `document`). Tab y Mayús+Tab circulan
+  dentro del panel. La lista de elementos se recalcula en cada pulsación,
+  porque el contenido cambia (un error, un chip, una previsualización) y una
+  lista congelada dejaría fuera lo nuevo. Se descartan los `[hidden]` y los
+  `aria-hidden`, **no** los `offsetParent`, que además de no existir en un DOM
+  sin layout excluiría los radios `sr-only` de las categorías, que sí tienen que
+  ser alcanzables con el teclado.
+- **Scroll y restauradores** (`useEffect`). El contador de modales abiertos y
+  el estilo anterior del `<body>` viven a **nivel de módulo**, no en el
+  componente. Si vivieran en la instancia, cerrar el primero de dos modales
+  perdería el valor y el `<body>` se quedaría con `overflow: hidden` para
+  siempre.
+
+### `PagePlaceholder`
+Marcador para páginas aún no implementadas (transitorio en Fase 1).
+
+| Prop | Tipo | Obligatoria | Por defecto | Descripción |
+|---|---|---|---|---|
+| `titulo` | `string` | Sí | — | Nombre de la sección. |
+| `descripcion` | `string` | Sí | — | Qué hará la pantalla. |
+| `paso` | `string` | No | — | Etiqueta del paso que la implementará. |
+
+---
+
+## Layout (`src/components/layout/`)
+
+### `Sidebar`
+Barra lateral fija de escritorio. Logo, menú (`MENU_ESCRITORIO`) y perfil de pareja al pie. Todos los `NavLink` llevan `end`.
+
+### `MobileHeader`
+Cabecera superior de móvil: logo (enlace a inicio) + acceso a Configuración.
+
+### `BottomNav`
+Barra inferior de móvil con 5 destinos (`MENU_MOVIL`), indicador de activo y safe-area de iOS.
+
+### `Layout`
+Armazón de la aplicación. Elige sidebar (≥1024px) o header+bottom nav con `useEsEscritorio()`. Aporta el contenedor de scroll y renderiza `<Outlet />`. Sin props.
+
+---
+
+## Páginas (`src/pages/`)
+- `Inicio`: banner con foto, saludo, frase del día, contador de recuerdos, "El más próximo" y próximos eventos. Usa `useEventos()`.
+- `Calendario`: mes completo. Cuadrícula del mes, navegación, leyenda de categorías y próximos eventos. Guarda el mes en `?mes=AAAA-MM`. Abre `EventoFormModal` en alta con la fecha del día preseleccionada. En escritorio la lista del día vive en un `aside` sticky a la derecha, para que se vea sin tener que desplazarse; en móvil va debajo de la cuadrícula.
+- `EventoDetalle`: ficha de un evento con foto, categoría, fecha, hora, lugar, descripción y enlace a la galería. Abre la edición y el borrado con confirmación, y vuelve a `?mes=` al terminar. Un id mal formado y un id inexistente dan la misma pantalla de "no encontrado", y en ninguno de los dos casos se muestra el id.
+- `Planeador`, `Momentos`, `Galeria`, `Configuracion`: marcadores de posición.
+- `Bienvenida`: fuera del layout, con el botón "Comenzar" (login simulado).
+
+## Componentes de calendario (`src/components/calendar/`)
+### `CalendarioMes`
+Pinta la cuadrícula de un mes: encabezado con título, flechas y "Hoy", nombres de los días, y las celdas. No calcula fechas: recibe la cuadrícula ya hecha.
+
+| Prop | Tipo | Obligatoria | Por defecto | Descripción |
+|---|---|---|---|---|
+| `cuadricula` | `Cuadricula` | Sí | — | Resultado de `construirCuadricula` + `asignarEventos`. |
+| `compacto` | `boolean` | No | `false` | Variante de móvil: celdas bajas con puntos de color. |
+| `onSelectDia` | `(fechaISO) => void` | Sí | — | Elige un día. |
+| `onVerRestoDelDia` | `(fechaISO) => void` | No | — | Activa el "+N más". Si se omite, no aparece. |
+| `onMoverMes` | `(delta) => void` | Sí | — | Flechas. `delta` es `-1` o `1`. |
+| `onHoy` | `() => void` | Sí | — | Vuelve al mes en curso. |
+| `mesActual` | `boolean` | No | `false` | Desactiva "Hoy" si ya se está en el mes actual. |
+
+La rejilla usa `role="grid"` con `role="row"` por semana. El encabezado de los nombres de día lleva `aria-hidden`, porque si no cada día se anunciaría dos veces ("lunes", y luego "lunes 1 de septiembre…").
+
+### `CeldaDia`
+Un día. Envuelve el `button` del día y, superpuesto en la parte baja, el `button` de "+N más".
+
+| Prop | Tipo | Obligatoria | Por defecto | Descripción |
+|---|---|---|---|---|
+| `celda` | `Celda` | Sí | — | Día con sus eventos ya asignados. |
+| `compacto` | `boolean` | No | `false` | Móvil: sin texto, solo puntos. |
+| `onSelect` | `() => void` | Sí | — | Selecciona el día. |
+| `onVerResto` | `() => void` | No | — | Abre el resto de eventos del día. |
+
+**Por qué el "+N más" es hermano y no hijo del `button` del día:** no se puede anidar un `button` dentro de otro `button`; es HTML inválido, el interno no es alcanzable con el teclado y el lector de pantalla lo anuncia mal. Por eso el envoltorio es un `div` con `relative` y el "+N más" va posicionado encima. El botón del día deja hueco abajo con `pb` para que no se solapen.
+
+### `EventosDelDia`
+Lista completa de los eventos de un día, con franja de categoría, hora, lugar y enlace al detalle. En móvil es la única forma de verlos, porque la celda solo muestra puntos de color. También es donde aterriza el "+N más" en escritorio.
+
+| Prop | Tipo | Obligatoria | Por defecto | Descripción |
+|---|---|---|---|---|
+| `eventos` | `Evento[]` | Sí | — | Eventos de ese día. |
+| `fechaISO` | `string` | Sí | — | Fecha `YYYY-MM-DD` del encabezado. |
+| `onAgregar` | `() => void` | No | — | Muestra "Agregar" para ese día. |
+| `compacto` | `boolean` | No | `false` | Ajusta el texto del botón. |
+
+## Componentes de eventos (`src/components/eventos/`)
+### `ProximosEventos`
+Lista compacta de próximos eventos: franja con el color de la categoría, título, fecha, hora, etiqueta relativa y enlace al detalle.
+
+| Prop | Tipo | Obligatoria | Por defecto | Descripción |
+|---|---|---|---|---|
+| `eventos` | `Evento[]` | Sí | — | Eventos ya filtrados y ordenados. |
+| `titulo` | `string` | No | `'Próximos eventos'` | Encabezado. |
+| `limite` | `number` | No | `5` | Máximo de eventos. |
+| `mostrarVacio` | `boolean` | No | `true` | Muestra texto si no hay eventos. |
+
+### `SelectorFoto`
+Input de archivo real (no un `div` con `onClick`) con previsualización, borrado y
+recompresión en el cliente.
+
+| Prop | Tipo | Obligatoria | Por defecto | Descripción |
+|---|---|---|---|---|
+| `valor` | `string \| null` | Sí | — | Data URL guardada, o `null` si no hay. |
+| `onChange` | `(dataUrl \| null) => void` | Sí | — | Recibe la nueva foto, o **`null`** al quitarla. |
+| `error` | `string` | No | `''` | Error de validación del formulario padre. |
+
+- El input es `<input type="file" accept="image/jpeg,image/png,image/webp">`
+  oculto tras una etiqueta. Un `div` con `onClick` no es alcanzable con el
+  teclado ni lo anuncia un lector de pantalla.
+- Acepta y rechaza en dos fases: primero el tipo y el tamaño declarados, y
+  después los **magic bytes** reales del archivo. Una imagen con extensión `.jpg`
+  que en realidad es un SVG pasa la primera fase y se rechaza en la segunda.
+- Al elegir archivo se **recomprime** antes de guardar (máx. 1200 px, WebP o
+  JPEG ~0.8). El canvas no copia los metadatos originales, así que esa
+  recompresión es lo que elimina EXIF y GPS.
+- Mientras procesa, el input se deshabilita y se avisa con `aria-live`.
+
+### `EventoFormModal`
+Un único formulario para alta y edición, envuelto en `Modal`.
+
+| Prop | Tipo | Obligatoria | Por defecto | Descripción |
+|---|---|---|---|---|
+| `abierto` | `boolean` | Sí | — | Visible desde el padre. |
+| `onCerrar` | `() => void` | Sí | — | Se llama al confirmar el cierre. |
+| `onGuardar` | `(datos) => Promise<unknown>` | Sí | — | El padre guarda y cierra. |
+| `evento` | `Evento \| null` | No | `null` | Si viene, es edición. |
+| `fechaInicial` | `string` | No | — | Fecha a precargar en alta (`YYYY-MM-DD`). |
+| `guardando` | `boolean` | No | `false` | Bloquea el envío y el botón. |
+
+Cuatro decisiones que no son obvias:
+
+1. **Alta y edición en un componente, no dos.** La validación, los límites, los
+   chips y el selector de foto son los mismos; duplicarlos garantiza que uno se
+   quede desactualizado.
+2. **El contenido no se desmonta al preguntar "¿salir sin guardar?".** Se
+   oculta con `hidden` y el aviso se muestra encima. Si se sustituyera, quien
+   cancelara volvería a un formulario recién montado y perdería lo escrito: el
+   aviso existiría para proteger ese trabajo y lo estaría destruyendo.
+3. **"¿Hay cambios?" se calcula comparando con los valores iniciales**, no con
+   un flag "tocado". Escribir y borrar devuelve el formulario a su estado
+   original, y preguntar en ese caso enseña a confirmar sin leer.
+4. **Los ids de los campos son constantes de módulo.** No dependen de la
+   instancia (salen de `CAMPOS`) y solo hay un formulario de evento en
+   pantalla, así que `useId` o un `useMemo` no aportarían nada.
+
+El foco va al primer campo al abrir, y a un error de campo o al aviso general al
+enviar con datos inválidos.
+
+---
+
+## Hooks
+
+### `useEventos()`
+Estado y operaciones de los eventos.
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `eventos` | `Evento[]` | Ordenados por fecha ascendente. |
+| `eventosPorFecha` | `Map<string, Evento[]>` | Índice fecha → eventos, para el calendario. |
+| `cargando` | `boolean` | `true` mientras lee el almacenamiento. |
+| `guardando` | `boolean` | `true` mientras hay una escritura en curso. |
+| `error` | `string \| null` | Mensaje listo para mostrar, ya en español. |
+| `obtenerEvento(id)` | `(id) => Evento \| null` | Busca en la lista ya cargada, sin ir al store. |
+| `crear(datos)` | `(datos) => Promise<Evento \| null>` | Crea y añade a la lista local. |
+| `actualizar(id, datos)` | `(id, datos) => Promise<Evento \| null>` | Modifica y sustituye en la lista local. |
+| `eliminar(id)` | `(id) => Promise<boolean>` | Borra y quita de la lista local. |
+| `recargar()` | `() => Promise<void>` | Vuelve a leer del almacenamiento. |
+| `restablecer()` | `() => Promise<Evento[]>` | Borra todo y vuelve a sembrar el seed. |
+
+```jsx
+const { eventos, cargando, error, crear, actualizar, eliminar } = useEventos();
+```
+
+### `useCitas()`
+Igual que `useEventos`, más: `ideasFiltradas`, `favoritas`, `filtro`, `setFiltro`, `opcionesFiltro` y `alternarFavorita(id)`.
+
+```jsx
+const { ideasFiltradas, filtro, setFiltro, alternarFavorita } = useCitas();
+```
+
+---
+
+## Services (`src/services/`)
+
+### `eventosService.js`
+| Función | Devuelve | Errores |
+|---|---|---|
+| `getEventos()` | `Promise<Evento[]>` | `ErrorServicio` |
+| `getEventoById(id)` | `Promise<Evento \| null>` | `ErrorServicio` |
+| `crearEvento(datos)` | `Promise<Evento>` | `ErrorValidacion`, `ErrorServicio`, `ErrorCuotaAlmacenamiento` |
+| `actualizarEvento(id, datos)` | `Promise<Evento>` | `ErrorValidacion`, `ErrorServicio` |
+| `eliminarEvento(id)` | `Promise<boolean>` | `ErrorServicio` |
+| `resetEventos()` | `Promise<Evento[]>` | `ErrorServicio` |
+
+### `citasService.js`
+| Función | Devuelve | Errores |
+|---|---|---|
+| `getIdeasCitas()` | `Promise<IdeaCita[]>` | `ErrorServicio`, `ErrorCuotaAlmacenamiento` |
+| `getIdeaById(id)` | `Promise<IdeaCita \| null>` | `ErrorServicio` |
+| `crearIdea(datos)` | `Promise<IdeaCita>` | `ErrorValidacion`, `ErrorServicio` |
+| `actualizarIdea(id, datos)` | `Promise<IdeaCita>` | `ErrorValidacion`, `ErrorServicio` |
+| `toggleFavorita(id)` | `Promise<IdeaCita \| null>` | `ErrorServicio` |
+| `eliminarIdea(id)` | `Promise<boolean>` | `ErrorServicio` |
+| `convertirIdeaEnEvento(id, {fecha, hora, lugar})` | `Promise<Evento>` | `ErrorValidacion`, `ErrorServicio` |
+| `resetCitas()` | `Promise<IdeaCita[]>` | `ErrorServicio` |
+
+`getIdeasCitas()` propaga `ErrorCuotaAlmacenamiento` **sin envolver**. Ocurre al
+guardar el seed la primera vez, y si se envolviera en `ErrorServicio` la interfaz
+mostraría "no pudimos cargar las ideas", que no dice nada accionable, en lugar
+del aviso de liberar espacio que sí lo dice. Cualquier otro fallo sí se envuelve,
+para que la interfaz tenga un único tipo de error con el que trabajar.
+
+### `storage.js`
+Abstracción sobre `localStorage` con claves versionadas `juntos:v2:{coleccion}` (v2 desde la normalización de categorías). Exporta `VERSION_DATOS`, `COLECCIONES`, `claveDe`, `leer`, `guardar`, `borrar`, `resetDatos`, `limpiarVersionesAnteriores`, `listarClaves`, `tamanoAproximado`, `storageDisponible`, `esCuotaAgotada`, y la clase `ErrorCuotaAlmacenamiento`.
+
+`leer()` devuelve `null` — no lanza — cuando no hay datos, cuando el JSON está
+corrupto o cuando el almacén no está disponible. La respuesta a los tres casos es
+la misma en el service: sembrar. Pero un fallo al **escribir** sí propaga, y si
+es de cuota llega intacto como `ErrorCuotaAlmacenamiento`.
+
+`tamanoAproximado()` envuelve cada `getItem` en su propio `try/catch`. Se llama
+al abrir Configuración y solo produce un número cosmético; que el almacén se
+caiga a mitad de la cuenta no puede dejar la pantalla en blanco.
+
+---
+
+## Constantes y utilidades
+
+### `src/utils/categorias.js`
+Fuente única de las categorías. Ningún otro archivo escribe un slug.
+
+- `CATEGORIAS_EVENTO`: `cita`, `aniversario`, `viaje`, `cumpleanos`, `otro` con `label/hex/bg/fg/Icon`.
+- `CATEGORIAS_IDEA`: `en-casa`, `afuera`, `aventura`, `relax`.
+- `obtenerCategoria(clave)`, `obtenerCategoriaIdea(clave)`: con fallback a la
+  categoría de reserva.
+- `ORDEN_CATEGORIAS_EVENTO`, `ORDEN_CATEGORIAS_IDEA`: orden de los chips,
+  derivados de `Object.keys()`.
+- `CATEGORIA`, `CATEGORIA_IDEA`: constantes con nombre, derivadas del catálogo.
+- `PATRON_CATEGORIA`, `esCategoriaValida()`, `esCategoriaIdeaValida()`.
+
+**Las claves son slugs, las etiquetas no.** La clave va al almacén y a la URL, y
+por eso no lleva tildes ni espacios; la etiqueta visible sí los lleva. Un cambio
+de slug exige migración de datos y del enum en Supabase en el mismo
+despliegue: subir `VERSION_DATOS` no migra datos reales.
+
+`obtenerCategoria()` busca con `Object.hasOwn`, no con un acceso directo. El
+catálogo es un objeto literal y por tanto hereda de `Object.prototype`: con
+`CATEGORIAS_EVENTO[clave] ?? reserva`, un valor guardado a mano como `"toString"`
+devolvería la función heredada en lugar de la categoría de reserva. La búsqueda
+comprueba pertenencia propia.
+
+### `src/utils/imagen.js`
+Todo el procesamiento de fotos, en un solo sitio y sin React.
+
+| Export | Devuelve | Para qué |
+|---|---|---|
+| `calcularDimensiones(ancho, alto, maximo?)` | `{ancho, alto}` | Reduce a 1200 px del lado mayor sin deformar. |
+| `detectarTipoPorBytes(buffer)` | `string \| null` | Lee los primeros bytes y decide el formato real. |
+| `validarBytesDeArchivo(file)` | `Promise<{valido, error, tipoMime}>` | Segunda fase: el contenido real del archivo. |
+| `validarArchivoFoto({type, size, name})` | `{valido, error}` | Primera fase: lo que el navegador declara. |
+| `comprimirImagen(file, opciones?)` | `Promise<{ok, dataUrl, ancho, alto, bytes, tipoMime, error}>` | Reescala y recomprime, eliminando metadatos. |
+| `estimarBytesGuardados(dataUrl, original)` | `{ahorro, porcentaje}` | Cuánto se ha ganado en la cuota. |
+| `TIPOS_ACEPTADOS`, `FORMATOS_SALIDA`, `TAMANO_MAXIMO_BYTES`, `FIRMAS` | — | Constantes compartidas. |
+
+La validación va en dos fases a propósito: el tipo y el tamaño que declara el
+navegador primero (rápido, evita leer el archivo), y después los **magic bytes**
+reales. Es lo que hace que un SVG renombrado a `.jpg` se rechace.
+
+El relleno de blanco ocurre **solo al exportar a JPEG**, justo antes de esa
+exportación, no antes de dibujar. Rellenando antes, también se perdía la
+transparencia al exportar a WebP, que sí la admite y es el primer formato que se
+intenta.
+
+### `src/utils/validaciones.js`
+- `LIMITES`, `PATRONES`, `TIPOS_IMAGEN_PERMITIDOS`, `TAMANO_MAXIMO_IMAGEN_BYTES`.
+- `ErrorValidacion` (con `erroresPorCampo`), `limpiarTexto`, `normalizarFecha`, `esFechaValida`, `validarEvento`, `validarIdea`, `esIdValido`.
+- `validarArchivoFoto` y las constantes de imagen se **reexportan** desde aquí
+  para no romper a quien ya las importaba de este módulo. La implementación vive
+  en `imagen.js`.
+
+`limpiarTexto()` solo acepta cadenas. Con un `String(valor)` genérico, un objeto
+acaba guardado como `"[object Object]"`; un valor que no sea texto se trata como
+campo vacío, que es lo que acabaría haciendo la validación de obligatoriedad.
+
+`validarIdea()` no usa `Boolean(entrada.favorita)`: la cadena `"false"` es
+truthy, así que un `favorita: "false"` acababa marcando la idea como favorita. Se
+acepta un booleano real o el valor que devuelve un `<input type="checkbox">`.
+
+```jsx
+try {
+  await crearEvento(datos);
+} catch (e) {
+  if (e instanceof ErrorValidacion) setErrores(e.erroresPorCampo);
+}
+```
+
+### `src/utils/calendario.js`
+Todo el cálculo de la cuadrícula, fuera de React y por tanto testeable sin DOM.
+
+| Export | Devuelve | Para qué |
+|---|---|---|
+| `construirCuadricula(mes, fechaHoy?)` | `Cuadricula` | Las semanas de un mes, de 4 a 6 filas. Función pura. |
+| `asignarEventos(cuadricula, indice, fechaISO?)` | `Cuadricula` | Pone los eventos en sus celdas y marca el día elegido. |
+| `etiquetaCelda(celda)` | `string` | `"14 de octubre, 3 eventos"`, con singular y plural. |
+| `eventosDe(cuadricula, fechaISO)` | `Evento[]` | Eventos de un día, para el panel de móvil. |
+| `mesDesdeParametro(valor, porDefecto?)` | `Date` | Interpreta `?mes=2026-10` sin `new Date(string)`. |
+| `mesAParametro(mes)` | `string` | Serializa a `AAAA-MM`. |
+| `moverMesCalendario(mes, delta)` | `Date` | Avanza o retrocede meses. |
+| `mesDesde(fecha)` | `Date` | Normaliza al día 1 del mes. |
+| `INICIO_SEMANA` | `1` | Constante: la semana empieza en lunes. |
+| `MAX_EVENTOS_CELDA` | `2` | Eventos visibles por celda antes de colapsar. |
+| `MAX_EVENTOS_MOVIL` | `4` | Puntos de color por celda en móvil. |
+| `DIAS_ENCABEZADO` / `DIAS_ENCABEZADO_CORTOS` | `string[]` | Nombres de día, lunes primero. |
+
+```jsx
+const cuadricula = useMemo(
+  () => asignarEventos(construirCuadricula(mes), eventosPorFecha, fechaSeleccionada),
+  [mes, eventosPorFecha, fechaSeleccionada],
+);
+```
+
+**Por qué la cuadrícula tiene 4, 5 o 6 filas y no siempre 6:** se extiende solo hasta completar la última semana. Fevereiro de 2027 (empieza en lunes, 28 días) ocupa exactamente 4 filas; agosto de 2026 (empieza en sábado) ocupa 6. Fijar 6 siempre dejaría dos semanas vacías en la mitad de los meses. El alto de la rejilla cambia al navegar, pero ese salto cae por debajo del pliegue en móvil.
+
+### `src/utils/fechas.js`
+`LOCALE`, `DIAS_SEMANA`, `DIAS_SEMANA_LARGOS`, `aFecha`, `formatearFecha`, `formatearHora`, `hoyISO`, `diaDelMes`, `esDelMesVisible`, `eventosOrdenados`, `eventosProximos`, `agruparPorFecha`, `etiquetaRelativa`, `esHoy`, `estaPasada`, `diasHasta`, `estaEnRango`, `getDay`.
+
+### `src/utils/ids.js`
+`nuevoId()` → UUID v4 con `crypto.randomUUID()`.
+
+### `src/constants/nav.js`
+`RUTAS`, `MENU_ESCRITORIO`, `MENU_MOVIL`, `PERFIL_PAREJA`, `MARCA`.
+
+### `src/hooks/useMediaQuery.js`
+`useMediaQuery(query)`, `useEsEscritorio()`, `BREAKPOINT_ESCRITORIO` (implementado con `useSyncExternalStore`).
+
+### `src/data/seed.js`
+`crearEventosSeed()`, `crearIdeasSeed()`, `fotoPlaceholder(semilla, ancho, alto)`, `fraseDelDia()`, `IDS_SEED`, `IDS_SEED_IDEAS`, `FOTO_BANNER`, `FRASES`.

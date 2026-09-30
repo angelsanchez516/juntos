@@ -1,0 +1,42 @@
+<!doctype html>
+<!--
+  Documento raíz de "Juntos".
+  RESPONSABILIDAD: define el idioma del documento (es), carga las fuentes de
+  Google Fonts (Dancing Script para el logo cursivo, Inter para la interfaz)
+  y monta el punto de entrada de React desde src/main.jsx.
+-->
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!--
+      viewport-fit=cover habilita las "safe areas" en iPhone con notch;
+      combined con las utilidades `env(safe-area-inset-*)` de Tailwind permite
+      que la barra inferior de navegación no quede bajo el indicador del
+      sistema en dispositivos móviles.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta
+      name="description"
+      content="Juntos: calendario de recuerdos y planeador de citas para parejas."
+    />
+    <meta name="theme-color" content="#0D121A" />
+
+    <!-- Fuentes del mockup. `display=swap` evita pantalla en blanco. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@500;700&family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <title>Juntos · Tus momentos, siempre</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

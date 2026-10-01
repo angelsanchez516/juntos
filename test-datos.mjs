@@ -267,14 +267,19 @@ comprobar('se prefiere WebP y se cae a JPEG', im.FORMATOS_SALIDA[0] === 'image/w
 comprobar('el canvas solo exporta a WebP o JPEG', im.TIPOS_CANVAS.every((t) => im.FORMATOS_SALIDA.includes(t)));
 
 console.log('\n== Claves versionadas ==');
-comprobar('clave con versión', st.claveDe('eventos') === 'juntos:v2:eventos', st.claveDe('eventos'));
+comprobar('clave con versión', st.claveDe('eventos') === 'juntos:v3:eventos', st.claveDe('eventos'));
+comprobar('la versión de los datos es 3', st.VERSION_DATOS === 3, String(st.VERSION_DATOS));
+comprobar('la sesión tiene versión propia, no la de los datos', st.VERSION_SESION === 1, String(st.VERSION_SESION));
+comprobar('la versión de la sesión es independiente de la de los datos', st.VERSION_SESION !== st.VERSION_DATOS);
+comprobar('la clave de sesión no hereda la versión de los datos', st.claveDeSesion() === 'juntos:v1:sesion', st.claveDeSesion());
+comprobar('la clave de sesión no es la de los datos', st.claveDeSesion() !== st.claveDe('eventos'));
 
 console.log('\n== Siembra inicial ==');
 const eventos = await ev.getEventos();
 comprobar('sembró 8 eventos', eventos.length === 8, `len=${eventos.length}`);
 comprobar('sembró 5 ideas', (await ci.getIdeasCitas()).length === 5);
 comprobar('ordenados por fecha', eventos.every((e, i) => i === 0 || eventos[i-1].fecha <= e.fecha));
-comprobar('persiste en la clave v2', storage.map.has('juntos:v2:eventos'));
+comprobar('persiste en la clave v3', storage.map.has('juntos:v3:eventos'));
 
 console.log('\n== Fechas relativas al mes actual (29 sep 2026) ==');
 const mesActual = new Date().getMonth();
@@ -345,11 +350,11 @@ try { await ev.actualizarEvento('no-uuid', { titulo: 'x' }); } catch (e) { tiroE
 comprobar('actualizar con id inválido lanza ErrorServicio', tiroErrorServicio);
 
 console.log('\n== Lectura tolerante a fallos (JSON corrupto) ==');
-storage.setItem('juntos:v2:eventos', '{esto no es json');
+storage.setItem('juntos:v3:eventos', '{esto no es json');
 comprobar('leer() devuelve null con JSON corrupto', st.leer('eventos') === null);
 const reSembrados = await ev.getEventos();
 comprobar('getEventos vuelve al seed', reSembrados.length === 8, `n=${reSembrados.length}`);
-storage.setItem('juntos:v2:eventos', '{"no":"es un array"}');
+storage.setItem('juntos:v3:eventos', '{"no":"es un array"}');
 comprobar('leer() rechaza un objeto que no es array', st.leer('eventos') === null);
 
 console.log('\n== Cuota agotada ==');
@@ -392,7 +397,7 @@ globalThis.window.localStorage = storage;
 let lanzoAlLeer = false;
 globalThis.window.localStorage = {
   get length() { return 1; },
-  key: () => 'juntos:v2:eventos',
+  key: () => 'juntos:v3:eventos',
   getItem: () => { lanzoAlLeer = true; throw new Error('almacén caído'); },
   setItem: () => {},
   removeItem: () => {},
@@ -456,10 +461,15 @@ console.log('\n== Versiones anteriores ==');
 // para tener una clave v1 que sí debe sobrevivir a la limpieza.
 await ev.getEventos();
 storage.setItem('juntos:v1:eventos', '[]');
-storage.setItem('juntos:v2:citas', '[]');
+storage.setItem('juntos:v3:citas', '[]');
+// Una sesión en una versión antigua de sí misma. Es justo el caso que se
+// quiere proteger: subir VERSION_DATOS no puede cerrar la sesión de nadie.
+storage.setItem('juntos:v1:sesion', '{"parejaId":"p1"}');
 comprobar('limpiarVersionesAnteriores borra v1', st.limpiarVersionesAnteriores().includes('juntos:v1:eventos'));
-comprobar('conserva los eventos de la versión actual', storage.getItem('juntos:v2:eventos') !== null);
-comprobar('conserva las citas de la versión actual', storage.getItem('juntos:v2:citas') !== null);
+comprobar('conserva los eventos de la versión actual', storage.getItem('juntos:v3:eventos') !== null);
+comprobar('conserva las citas de la versión actual', storage.getItem('juntos:v3:citas') !== null);
+comprobar('limpiar los datos viejos NO borra la sesión', storage.getItem('juntos:v1:sesion') !== null, String(storage.getItem('juntos:v1:sesion')));
+comprobar('la sesión no se cuenta como versión antigua de datos', !st.limpiarVersionesAnteriores().includes('juntos:v1:sesion'));
 
 /*
  * ---------------------------------------------------------------------------
@@ -781,6 +791,25 @@ const { createRoot } = await import('react-dom/client');
 const { act } = await import('react');
 
 /**
+ * Busca el primer elemento que contiene un texto, dentro de un ámbito.
+ *
+ * Se separa del arnés para que `porTexto` y `porTextoGlobal` compartan el mismo
+ * criterio y no se separen por accidente: si un solo sitio usara `textContent`
+ * sin recortar, "Guardar" encontraría "Guardar cambios" y la prueba pasaría
+ * midiendo otro botón.
+ *
+ * @param {ParentNode} ambito Contenedor donde buscar.
+ * @param {string} selector Selector CSS.
+ * @param {string} texto Texto que debe contener, sin recortar.
+ * @returns {Element|null} Elemento encontrado, o `null`.
+ */
+function buscarPorTexto(ambito, selector, texto) {
+  return [...ambito.querySelectorAll(selector)].find((el) =>
+    el.textContent.trim().includes(texto),
+  );
+}
+
+/**
  * Monta un componente en el DOM y devuelve utilidades para inspeccionarlo.
  *
  * OJO: el modal se monta con `createPortal` sobre `document.body`, así que sus
@@ -803,16 +832,58 @@ async function montar(elemento) {
   return {
     raiz: contenedor,
 
-    /** Primer elemento que contiene el texto dado. */
+    /**
+     * Primer elemento del CONTENEDOR que contiene el texto dado.
+     *
+     * Solo mira dentro del contenedor del componente. Para lo que se monte por
+     * portal —cualquier `Modal`— hay que usar `porTextoGlobal`, y no por
+     * comodidad: si un `null` de este buscador significara "el modal está mal",
+     * se estaría midiendo otra cosa.
+     *
+     * @param {string} selector Selector CSS.
+     * @param {string} texto Texto que debe contener.
+     * @returns {Element|null} Elemento encontrado, o `null`.
+     */
     porTexto(selector, texto) {
-      return [...contenedor.querySelectorAll(selector)].find((el) =>
-        el.textContent.trim().includes(texto),
-      );
+      return buscarPorTexto(contenedor, selector, texto);
     },
 
-    /** Pulsa un elemento. */
-    async pulsar(el) {
-      if (!el) throw new Error('pulsar() recibió null');
+    /**
+     * Igual que {@link porTexto}, pero en todo el documento.
+     *
+     * Existe para el contenido de los modales, que `createPortal` deja fuera del
+     * contenedor. Con dos modales abiertos a la vez devuelve el primero que
+     * coincida, así que las pruebas que pueden tener varios abiertos se
+     * desmontan unas a otras para no medirse siempre la primera.
+     *
+     * @param {string} selector Selector CSS.
+     * @param {string} texto Texto que debe contener.
+     * @returns {Element|null} Elemento encontrado, o `null`.
+     */
+    porTextoGlobal(selector, texto) {
+      return buscarPorTexto(document, selector, texto);
+    },
+
+    /**
+     * Pulsa un elemento.
+     *
+     * Si no recibe elemento, el error dice qué se intentó pulsar. Un
+     * `pulsar() recibió null` a secas corta la suite entera en un archivo de
+     * más de mil líneas, y cuando se mira el error no se sabe ni de qué botón
+     * se trata: se pierde el contexto de las comprobaciones que sí pasaron.
+     *
+     * @param {Element|null} el Elemento a pulsar.
+     * @param {string} [descripcion] Qué se buscaba, para el mensaje de error.
+     * @returns {Promise<void>} Termina cuando React ha repintado.
+     */
+    async pulsar(el, descripcion) {
+      if (!el) {
+        throw new Error(
+          `pulsar() no encontró nada${descripcion ? `: ${descripcion}` : ''}. ` +
+            'Revisa que el botón exista, que su texto siga siendo ese y si está ' +
+            'dentro de un modal, en cuyo caso hay que usar porTextoGlobal().',
+        );
+      }
       await act(async () => {
         el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }));
       });
@@ -827,10 +898,16 @@ async function montar(elemento) {
      *
      * @param {HTMLInputElement|HTMLTextAreaElement} el Campo a escribir.
      * @param {string} valor Texto a escribir.
+     * @param {string} [descripcion] Qué campo se buscaba, para el error.
      * @returns {Promise<void>} Termina cuando React ha repintado.
      */
-    async escribir(el, valor) {
-      if (!el) throw new Error('escribir() recibió null');
+    async escribir(el, valor, descripcion) {
+      if (!el) {
+        throw new Error(
+          `escribir() no encontró el campo${descripcion ? `: ${descripcion}` : ''}. ` +
+            'Un selector mal escrito y un campo que no se ha pintado fallan igual.',
+        );
+      }
       const prototipo =
         el.tagName === 'TEXTAREA' ? dom.window.HTMLTextAreaElement.prototype : dom.window.HTMLInputElement.prototype;
       await act(async () => {
@@ -839,8 +916,20 @@ async function montar(elemento) {
       });
     },
 
-    /** Envía el formulario. */
-    async enviar(formulario) {
+    /**
+     * Envía el formulario.
+     *
+     * @param {HTMLFormElement} formulario Formulario a enviar.
+     * @param {string} [descripcion] Qué formulario se buscaba, para el error.
+     * @returns {Promise<void>} Termina cuando React ha repintado.
+     */
+    async enviar(formulario, descripcion) {
+      if (!formulario) {
+        throw new Error(
+          `enviar() no encontró el formulario${descripcion ? `: ${descripcion}` : ''}. ` +
+            'Si está dentro de un modal, búscalo en document y no en la raíz del componente.',
+        );
+      }
       await act(async () => {
         formulario.dispatchEvent(
           new dom.window.Event('submit', { bubbles: true, cancelable: true }),
@@ -1628,7 +1717,7 @@ comprobar('la foto sigue ahí después de releer', guardado?.foto === FOTO_PNG, 
 
 // Y que el store siga siendo JSON válido, que es lo que se escribiría en la
 // siguiente escritura. Si `foto` fuera un objeto, esto no parsearía.
-const crudo = storage.getItem('juntos:v2:eventos');
+const crudo = storage.getItem('juntos:v3:eventos');
 comprobar('lo guardado sigue siendo JSON válido', (() => {
   try {
     return JSON.parse(crudo).length === releidos.length;
@@ -1638,6 +1727,404 @@ comprobar('lo guardado sigue siendo JSON válido', (() => {
 })(), 'el JSON del almacen no parsea');
 
 await ev.eliminarEvento(eventoConFoto.id);
+
+
+/**
+ * ---------------------------------------------------------------------------
+ * PASO e: el planeador de citas.
+ * ---------------------------------------------------------------------------
+ */
+
+const pl = await vite.ssrLoadModule('/src/utils/planeador.js');
+const mo = await vite.ssrLoadModule('/src/types/models.js');
+
+console.log('\n== Paso e: el filtro sale de la URL y se normaliza ==');
+// El valor del filtro lo elige quien pulsa un enlace o quien edita la barra de
+// direcciones. Todo lo que no sea una clave del catálogo tiene que caer en
+// "todas", no colarse en la comparación ni romper la página.
+comprobar('una categoría válida se lee de la URL', pl.leerCategoriaDeUrl('?categoria=relax') === 'relax', pl.leerCategoriaDeUrl('?categoria=relax'));
+comprobar('una categoría inventada cae en "todas"', pl.leerCategoriaDeUrl('?categoria=inventada') === pl.FILTRO_TODAS);
+comprobar('un intento de inyección cae en "todas"', pl.leerCategoriaDeUrl('?categoria=<script>alert(1)</script>') === pl.FILTRO_TODAS);
+comprobar('sin el signo ? también se lee', pl.leerCategoriaDeUrl('categoria=afuera') === 'afuera');
+comprobar('la categoría no distingue mayúsculas', pl.leerCategoriaDeUrl('?categoria=RELAX') === 'relax');
+comprobar('una búsqueda vacía no filtra', pl.leerCategoriaDeUrl('') === pl.FILTRO_TODAS && pl.leerCategoriaDeUrl(null) === pl.FILTRO_TODAS);
+comprobar('el parámetro se acepta como URLSearchParams', pl.leerCategoriaDeUrl(new URLSearchParams('categoria=aventura')) === 'aventura');
+comprobar('el nombre heredado no vale como categoría', pl.leerCategoriaDeUrl('?categoria=toString') === pl.FILTRO_TODAS);
+
+comprobar('"1" activa solo favoritas', pl.leerSoloFavoritasDeUrl('?favoritas=1') === true);
+comprobar('"true" activa solo favoritas', pl.leerSoloFavoritasDeUrl('?favoritas=true') === true);
+comprobar('"si" activa solo favoritas', pl.leerSoloFavoritasDeUrl('?favoritas=si') === true);
+comprobar('cualquier otra cosa no lo activa', pl.leerSoloFavoritasDeUrl('?favoritas=quizás') === false);
+comprobar('"0" no lo activa', pl.leerSoloFavoritasDeUrl('?favoritas=0') === false);
+comprobar('sin parámetro no lo activa', pl.leerSoloFavoritasDeUrl('') === false);
+
+console.log('\n== Paso e: escribir los filtros deja la URL limpia ==');
+comprobar('sin filtros la búsqueda queda vacía', pl.escribirFiltros('', {}) === '', pl.escribirFiltros('', {}));
+comprobar('"todas" no aparece en la URL', pl.escribirFiltros('', { categoria: pl.FILTRO_TODAS }) === '');
+comprobar('una categoría se escribe en la URL', pl.escribirFiltros('', { categoria: 'relax' }) === 'categoria=relax', pl.escribirFiltros('', { categoria: 'relax' }));
+comprobar('solo favoritas se escribe como 1', pl.escribirFiltros('', { soloFavoritas: true }) === 'favoritas=1', pl.escribirFiltros('', { soloFavoritas: true }));
+comprobar('los dos filtros a la vez se escriben', pl.escribirFiltros('', { categoria: 'afuera', soloFavoritas: true }) === 'categoria=afuera&favoritas=1', pl.escribirFiltros('', { categoria: 'afuera', soloFavoritas: true }));
+// El planeador no debe borrar lo que otra parte de la app haya puesto.
+comprobar('un parámetro ajeno se conserva', pl.escribirFiltros('mes=2026-10', { categoria: 'relax' }) === 'mes=2026-10&categoria=relax', pl.escribirFiltros('mes=2026-10', { categoria: 'relax' }));
+comprobar('quitar un filtro deja el otro puesto', pl.escribirFiltros('categoria=relax&favoritas=1', { categoria: pl.FILTRO_TODAS, soloFavoritas: true }) === 'favoritas=1', pl.escribirFiltros('categoria=relax&favoritas=1', { categoria: pl.FILTRO_TODAS, soloFavoritas: true }));
+
+// Ida y vuelta: lo que se escribe tiene que releerse igual.
+const idaYVuelta = pl.escribirFiltros('', { categoria: 'aventura', soloFavoritas: true });
+comprobar('lo escrito se relee igual', pl.leerCategoriaDeUrl(idaYVuelta) === 'aventura' && pl.leerSoloFavoritasDeUrl(idaYVuelta) === true, idaYVuelta);
+
+console.log('\n== Paso e: filtrar la lista ==');
+const ideasPrueba = [
+  { id: 'a', titulo: 'B', categoria: 'en-casa', favorita: true },
+  { id: 'b', titulo: 'A', categoria: 'afuera', favorita: false },
+  { id: 'c', titulo: 'C', categoria: 'en-casa', favorita: false },
+];
+comprobar('sin filtros salen todas', pl.filtrarIdeas(ideasPrueba).length === 3);
+comprobar('el filtro de categoría recorta', pl.filtrarIdeas(ideasPrueba, { categoria: 'en-casa' }).length === 2);
+comprobar('el filtro de categoría no trae las de otras', pl.filtrarIdeas(ideasPrueba, { categoria: 'afuera' }).every((i) => i.categoria === 'afuera'));
+comprobar('"todas" no recorta nada', pl.filtrarIdeas(ideasPrueba, { categoria: pl.FILTRO_TODAS }).length === 3);
+comprobar('solo favoritas recorta a las marcadas', pl.filtrarIdeas(ideasPrueba, { soloFavoritas: true }).length === 1);
+comprobar('los dos filtros se aplican a la vez', pl.filtrarIdeas(ideasPrueba, { categoria: 'en-casa', soloFavoritas: true }).length === 1);
+comprobar('un filtro sin resultados devuelve lista vacía', pl.filtrarIdeas(ideasPrueba, { categoria: 'relax' }).length === 0);
+comprobar('filtrar no muta la lista original', ideasPrueba.length === 3 && ideasPrueba[0].id === 'a');
+// `favorita` con valor ausente no debe contar como favorita.
+comprobar('una idea sin `favorita` no cuenta como favorita', pl.filtrarIdeas([{ id: 'd', categoria: 'en-casa' }], { soloFavoritas: true }).length === 0);
+
+console.log('\n== Paso e: las ideas del seed no se tocan ==');
+comprobar('una idea del seed no es editable', pl.esIdeaEditable({ origen: mo.ORIGEN.SEED }) === false);
+comprobar('una idea propia sí es editable', pl.esIdeaEditable({ origen: mo.ORIGEN.USUARIO }) === true);
+comprobar('sin origen se trata como del seed', pl.esIdeaEditable({ titulo: 'X' }) === false);
+// El `origen` lo escribe el service, no el formulario: si `esIdeaEditable` se
+// basara en la categoría, marcarse como "propia" sería trivial.
+comprobar('todas las ideas del seed son del seed', sd.crearIdeasSeed().every((i) => i.origen === mo.ORIGEN.SEED), JSON.stringify([...new Set(sd.crearIdeasSeed().map((i) => i.origen))]));
+comprobar('el seed sigue siendo válido con el origen añadido', sd.crearIdeasSeed().every((i) => { try { va.validarIdea(i); return true; } catch { return false; } }));
+comprobar('crearIdeasSeed devuelve copias, no el mismo objeto', sd.crearIdeasSeed()[0] !== sd.crearIdeasSeed()[0]);
+
+console.log('\n== Paso e: convertir una idea en evento ==');
+const ideaParaConvertir = {
+  titulo: 'Picnic en el parque',
+  descripcion: 'Manta a la sombra.',
+  imagen: 'data:image/png;base64,AAAA',
+  categoria: 'afuera',
+  favorita: true,
+};
+const valores = pl.ideaAValoresEvento(ideaParaConvertir);
+// La fecha vacía es lo más importante de esta función: si se rellenara con la
+// de hoy, quien abriera el formulario creería que el día ya estaba pensado.
+comprobar('la fecha de una idea llega vacía', valores.fecha === '', valores.fecha);
+comprobar('la fecha no se rellena sola con hoy', valores.fecha !== fe.hoyISO());
+comprobar('el título se arrastra a la idea', valores.titulo === 'Picnic en el parque');
+comprobar('la descripción se arrastra a la idea', valores.descripcion === 'Manta a la sombra.');
+comprobar('la foto pasa a `foto`', valores.foto === ideaParaConvertir.imagen);
+comprobar('la categoría se fuerza a cita', valores.categoria === pl.CATEGORIA_AL_CONVERTIR, valores.categoria);
+comprobar('la categoría de cita es válida para un evento', cg.esCategoriaValida(valores.categoria));
+comprobar('la idea no se toca al convertir', pl.ideaAValoresEvento(ideaParaConvertir).titulo === 'Picnic en el parque' && ideaParaConvertir.favorita === true);
+comprobar('sin descripción el campo queda vacío', pl.ideaAValoresEvento({ titulo: 'X' }).descripcion === '');
+comprobar('sin foto el campo queda a null', pl.ideaAValoresEvento({ titulo: 'X' }).foto === null);
+comprobar('con valores raros no aparece `undefined`', !JSON.stringify(pl.ideaAValoresEvento({ titulo: 'X', descripcion: 42 })).includes('undefined'));
+comprobar('convertir sin idea lanza en vez de devolver basura', (() => { try { pl.ideaAValoresEvento(null); return false; } catch { return true; } })());
+
+console.log('\n== Paso e: presentacion de la tarjeta ==');
+comprobar('el degradado usa los colores del catálogo', pl.degradadoCategoria('relax').backgroundImage.includes(cg.obtenerCategoriaIdea('relax').hex), pl.degradadoCategoria('relax').backgroundImage);
+comprobar('una categoría inventada no rompe el degradado', pl.degradadoCategoria('inventada').backgroundImage.startsWith('linear-gradient'));
+comprobar('el degradado es un estilo, no una clase', typeof pl.degradadoCategoria('relax').backgroundImage === 'string' && !('className' in pl.degradadoCategoria('relax')));
+comprobar('el corazón anuncia la acción, no solo el estado', pl.etiquetaFavorita({ titulo: 'Picnic', favorita: true }).startsWith('Quitar de favoritas: Picnic'), pl.etiquetaFavorita({ titulo: 'Picnic', favorita: true }));
+comprobar('el corazón sin marcar ofrece marcarla', pl.etiquetaFavorita({ titulo: 'Picnic', favorita: false }) === 'Marcar como favorita: Picnic', pl.etiquetaFavorita({ titulo: 'Picnic', favorita: false }));
+comprobar('sin título el corazón sigue siendo entendible', pl.etiquetaFavorita({ favorita: false }) === 'Marcar como favorita');
+comprobar('un título largo se recorta con puntos suspensivos', pl.recortarTitulo('Un título bastante largo de verdad', 10).endsWith('…') && pl.recortarTitulo('Un título bastante largo de verdad', 10).length <= 10, pl.recortarTitulo('Un título bastante largo de verdad', 10));
+comprobar('un título corto no se toca', pl.recortarTitulo('Corto', 10) === 'Corto');
+comprobar('recortar no deja espacios colgando', pl.recortarTitulo('Hola mundo entero', 6) === 'Hola…', JSON.stringify(pl.recortarTitulo('Hola mundo entero', 6)));
+
+console.log('\n== Paso e: el orden de la lista ==');
+comprobar('las favoritas van primero', pl.ordenarIdeas([{ titulo: 'A', favorita: false }, { titulo: 'B', favorita: true }])[0].titulo === 'B');
+comprobar('a igualdad de favorita manda el título', pl.ordenarIdeas([{ titulo: 'B', favorita: true }, { titulo: 'A', favorita: true }]).map((i) => i.titulo).join('') === 'AB');
+comprobar('ordenar no muta la entrada', (() => { const entrada = [{ titulo: 'B', favorita: true }, { titulo: 'A', favorita: false }]; pl.ordenarIdeas(entrada); return entrada[0].titulo === 'B'; })());
+// Sin el idioma fijado, "Ánfora" se ordenaría de forma distinta según el
+// navegador. Con 'es' el orden es el de español en todos.
+comprobar('los acentos se ordenan como en español', pl.ordenarIdeas([{ titulo: 'Zafiro', favorita: false }, { titulo: 'Ánfora', favorita: false }]).map((i) => i.titulo).join(',') === 'Ánfora,Zafiro', pl.ordenarIdeas([{ titulo: 'Zafiro', favorita: false }, { titulo: 'Ánfora', favorita: false }]).map((i) => i.titulo).join(','));
+
+console.log('\n== Paso e: el service pone el origen y no lo deja cambiar ==');
+// Las ideas del seed se siembran aquí para que las pruebas siguientes partan de
+// un estado conocido, y no del que dejaran las de más arriba.
+await ci.resetCitas();
+const ideaPropia = await ci.crearIdea({ titulo: 'Idea propia', categoria: 'en-casa' });
+comprobar('crear una idea la marca como propia', ideaPropia.origen === mo.ORIGEN.USUARIO, JSON.stringify(ideaPropia.origen));
+// Si `crearIdea` aceptara el origen de la petición, un formulario podría crear
+// una idea propia que queda protegida frente a la edición y el borrado.
+const ideaConOrigenFalso = await ci.crearIdea({ titulo: 'Con origen falso', categoria: 'en-casa', origen: mo.ORIGEN.SEED });
+comprobar('crear no acepta el origen de la petición', ideaConOrigenFalso.origen === mo.ORIGEN.USUARIO, JSON.stringify(ideaConOrigenFalso.origen));
+comprobar('crear no acepta el origen aunque pida edición', ideaConOrigenFalso.id !== undefined);
+
+const editada = await ci.actualizarIdea(ideaPropia.id, { titulo: 'Idea propia editada' });
+comprobar('editar conserva el origen', editada.origen === mo.ORIGEN.USUARIO, JSON.stringify(editada.origen));
+comprobar('editar sí cambia el título', editada.titulo === 'Idea propia editada');
+const intentoDeRebajar = await ci.actualizarIdea(ideaPropia.id, { origen: mo.ORIGEN.SEED });
+comprobar('editar no deja rebajar el origen a seed', intentoDeRebajar.origen === mo.ORIGEN.USUARIO, JSON.stringify(intentoDeRebajar.origen));
+comprobar('el origen se conserva al releer del almacén', (await ci.getIdeasCitas()).find((i) => i.id === ideaPropia.id)?.origen === mo.ORIGEN.USUARIO);
+
+comprobar('normalizarOrigen respeta "usuario"', ci.normalizarOrigen('usuario') === mo.ORIGEN.USUARIO);
+comprobar('normalizarOrigen mantiene "seed"', ci.normalizarOrigen('seed') === mo.ORIGEN.SEED);
+comprobar('normalizarOrigen cae en seed si no hay origen', ci.normalizarOrigen(undefined) === mo.ORIGEN.SEED);
+comprobar('normalizarOrigen cae en seed ante un valor raro', ci.normalizarOrigen('inventado') === mo.ORIGEN.SEED);
+// Falso positivo: "seed" y "usuario" tienen que ser valores distintos.
+comprobar('los dos orígenes son valores distintos', mo.ORIGEN.SEED !== mo.ORIGEN.USUARIO);
+
+console.log('\n== Paso e: la lista se ordena y se filtra en el service ==');
+const paraOrdenar = await ci.crearIdea({ titulo: 'Ánfora', categoria: 'afuera' });
+const leidas = await ci.getIdeasCitas();
+const indiceFavorita = leidas.findIndex((i) => i.favorita);
+comprobar('las favoritas del seed salen primero', indiceFavorita === 0 || !leidas[0].favorita, JSON.stringify(leidas.map((i) => i.favorita)));
+comprobar('el service devuelve las ideas del seed con su origen', leidas.filter((i) => i.origen === mo.ORIGEN.SEED).length === sd.crearIdeasSeed().length, String(leidas.filter((i) => i.origen === mo.ORIGEN.SEED).length));
+await ci.eliminarIdea(paraOrdenar.id);
+await ci.eliminarIdea(ideaConOrigenFalso.id);
+await ci.eliminarIdea(ideaPropia.id);
+comprobar('eliminar una idea la quita de la lista', (await ci.getIdeasCitas()).length === sd.crearIdeasSeed().length, String((await ci.getIdeasCitas()).length));
+
+
+
+console.log('\n== Paso e: la página del planeador ==');
+const PlaneadorPagina = (await vite.ssrLoadModule('/src/pages/Planeador.jsx')).default;
+// `useLocation` viene del mismo `requireDesdeProyecto` de arriba: cargarlo con
+// `ssrLoadModule` daría error porque Vite no resuelve especificadores desnudos.
+const { useLocation } = requireDesdeProyecto('react-router-dom');
+
+/**
+ * Muestra la búsqueda vigente de la URL en un nodo consultable.
+ *
+ * Sin esto no se puede comprobar que los filtros van a la URL y no a un estado
+ * interno: la lista se vería igual de filtrada en los dos casos, y es
+ * exactamente el comportamiento que hay que demostrar.
+ *
+ * @returns {import('react').ReactElement} Nodo con la búsqueda de la URL.
+ */
+const EcoDeUrl = () =>
+  ReactCjs.createElement('p', { id: 'eco-url' }, useLocation().search);
+
+const montarPlaneador = (busqueda = '') =>
+  montar(
+    ReactCjs.createElement(
+      MemoryRouter,
+      { initialEntries: [`/planeador${busqueda}`] },
+      ReactCjs.createElement(PlaneadorPagina),
+      ReactCjs.createElement(EcoDeUrl),
+    ),
+  );
+
+const ecoUrl = () => document.getElementById('eco-url')?.textContent ?? '';
+const tarjetas = (raiz) => [...raiz.querySelectorAll('article[data-id]')];
+const tituloTarjeta = (tarjeta) => tarjeta?.querySelector('h3')?.textContent ?? '';
+
+// La página parte del seed, sin ideas propias, para saber exactamente qué ve.
+await ci.resetCitas();
+const appPlaneador = await montarPlaneador();
+comprobar('la página se monta con las ideas del seed', tarjetas(appPlaneador.raiz).length === sd.crearIdeasSeed().length, String(tarjetas(appPlaneador.raiz).length));
+comprobar('cada tarjeta lleva su id', tarjetas(appPlaneador.raiz).every((t) => /^[-0-9a-f]{36}$/.test(t.dataset.id ?? '')));
+comprobar('la cabecera cuenta cuántas ideas hay', /5 ideas/.test(appPlaneador.raiz.textContent), appPlaneador.raiz.textContent.slice(0, 120));
+comprobar('no hay `undefined` en pantalla', !appPlaneador.raiz.textContent.includes('undefined'));
+comprobar('no hay `[object Object]` en pantalla', !appPlaneador.raiz.textContent.includes('[object Object]'));
+comprobar('el botón de nueva idea está', appPlaneador.porTexto('button', 'Nueva idea') !== null);
+
+console.log('\n== Paso e: las ideas del seed no ofrecen editar ni borrar ==');
+// Es la diferencia entre seed y propia en la interfaz. Si apareciera el botón,
+// quien pulsara podría abrir un formulario con una idea que al guardar no
+// cambiaría, o borrar contenido de ejemplo sin poder recuperarlo.
+const tarjetaSeed = tarjetas(appPlaneador.raiz)[0];
+comprobar('una idea del seed no tiene botón de editar', tarjetaSeed.querySelector('button[aria-label^="Editar"]') === null);
+comprobar('una idea del seed no tiene botón de borrar', tarjetaSeed.querySelector('button[aria-label^="Borrar"]') === null);
+comprobar('una idea del seed sí se puede marcar como favorita', tarjetaSeed.querySelector('button[aria-pressed]') !== null);
+comprobar('una idea del seed sí se puede convertir en evento', tarjetaSeed.querySelector('button:not([aria-label]):not([aria-pressed])') !== null);
+comprobar('el corazón de la tarjeta anuncia la idea', /^Marcar como favorita|^Quitar de favoritas/.test(tarjetaSeed.querySelector('button[aria-pressed]')?.getAttribute('aria-label') ?? ''), tarjetaSeed.querySelector('button[aria-pressed]')?.getAttribute('aria-label') ?? 'sin etiqueta');
+
+console.log('\n== Paso e: el filtro de categoría va a la URL ==');
+const chipAfuera = [...appPlaneador.raiz.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Afuera');
+comprobar('el chip de categoría es un botón', chipAfuera !== null);
+comprobar('el chip no está seleccionado al principio', chipAfuera?.getAttribute('aria-pressed') !== 'true', chipAfuera?.getAttribute('aria-pressed') ?? 'sin atributo');
+await appPlaneador.pulsar(chipAfuera);
+comprobar('pulsar un chip escribe en la URL', ecoUrl().includes('categoria=afuera'), ecoUrl());
+comprobar('el filtro acota la lista', tarjetas(appPlaneador.raiz).length === 1, String(tarjetas(appPlaneador.raiz).length));
+comprobar('solo queda la idea de esa categoría', tarjetas(appPlaneador.raiz).every((t) => t.textContent.includes('Picnic') || t.textContent.includes('Escapada')), tarjetas(appPlaneador.raiz).map(tituloTarjeta).join('|'));
+comprobar('el chip pulsado queda marcado como seleccionado', chipAfuera?.getAttribute('aria-pressed') === 'true', chipAfuera?.getAttribute('aria-pressed') ?? 'sin atributo');
+comprobar('aparece el botón de quitar filtros', appPlaneador.porTexto('button', 'Quitar filtros') !== null);
+comprobar('el contador anuncia cuántas quedan', document.querySelector('[aria-live="polite"]')?.textContent.includes('1 de 5'), document.querySelector('[aria-live="polite"]')?.textContent ?? '(sin texto)');
+
+console.log('\n== Paso e: una URL con filtro abre esa vista ==');
+await appPlaneador.desmontar();
+const appDesdeEnlace = await montarPlaneador('?categoria=relax');
+comprobar('un enlace con filtro abre la vista filtrada', tarjetas(appDesdeEnlace.raiz).length === 1, String(tarjetas(appDesdeEnlace.raiz).length));
+comprobar('y es la idea de esa categoría', tarjetas(appDesdeEnlace.raiz)[0].textContent.includes('spa'), tarjetas(appDesdeEnlace.raiz)[0].textContent.slice(0, 80));
+await appDesdeEnlace.desmontar();
+
+// Y un enlace con una categoría inventada no rompe la página: cae en "todas".
+const appConCategoriaRara = await montarPlaneador('?categoria=%3Cscript%3E');
+comprobar('una categoría inventada en la URL no rompe la página', tarjetas(appConCategoriaRara.raiz).length === sd.crearIdeasSeed().length, String(tarjetas(appConCategoriaRara.raiz).length));
+comprobar('el filtro inválido no aparece en pantalla', !appConCategoriaRara.raiz.textContent.includes('<script>'));
+await appConCategoriaRara.desmontar();
+
+console.log('\n== Paso e: solo favoritas ==');
+const appSoloFavoritas = await montarPlaneador('?favoritas=1');
+comprobar('un enlace con favoritas=1 abre solo las marcadas', tarjetas(appSoloFavoritas.raiz).length === 2, String(tarjetas(appSoloFavoritas.raiz).length));
+const interruptor = appSoloFavoritas.raiz.querySelector('[role="switch"]');
+comprobar('el interruptor es un switch, no una casilla', interruptor !== null);
+comprobar('el interruptor refleja el estado de la URL', interruptor?.getAttribute('aria-checked') === 'true', interruptor?.getAttribute('aria-checked') ?? 'sin atributo');
+comprobar('el interruptor tiene nombre visible', interruptor?.textContent.includes('Solo favoritas'), interruptor?.textContent ?? '(sin texto)');
+
+await appSoloFavoritas.pulsar(interruptor);
+comprobar('desactivarlo quita el parámetro de la URL', !ecoUrl().includes('favoritas'), ecoUrl());
+comprobar('y vuelve a salir la lista completa', tarjetas(appSoloFavoritas.raiz).length === sd.crearIdeasSeed().length, String(tarjetas(appSoloFavoritas.raiz).length));
+
+// Con el interruptor apagado pero ninguna idea marcada, el estado vacío tiene que
+// decir qué hacer, en vez de un "no hay nada" que no explica el motivo.
+await appSoloFavoritas.pulsar(appSoloFavoritas.raiz.querySelector('[role="switch"]'));
+comprobar('volver a activarlo recupera el filtro', ecoUrl().includes('favoritas=1'), ecoUrl());
+await appSoloFavoritas.pulsar(appSoloFavoritas.raiz.querySelector('[role="switch"]'));
+await appSoloFavoritas.desmontar();
+
+console.log('\n== Paso e: marcar favorita es optimista y avisa si falla ==');
+const appFavorita = await montarPlaneador();
+const ideaNoFavorita = tarjetas(appFavorita.raiz).find((t) => t.querySelector('button[aria-pressed="false"]'));
+comprobar('hay una idea sin marcar para probar', ideaNoFavorita !== undefined);
+const corazon = ideaNoFavorita.querySelector('button[aria-pressed]');
+comprobar('el corazón empieza sin marcar', corazon.getAttribute('aria-pressed') === 'false');
+await appFavorita.pulsar(corazon);
+comprobar('el corazón se marca al instante', document.querySelector(`article[data-id="${ideaNoFavorita.dataset.id}"] button[aria-pressed]`)?.getAttribute('aria-pressed') === 'true');
+comprobar('el cambio llegó al almacén', (await ci.getIdeasCitas()).find((i) => i.id === ideaNoFavorita.dataset.id)?.favorita === true);
+comprobar('un guardado correcto no enseña ningún aviso', appFavorita.raiz.querySelector('[role="alert"]') === null);
+await appFavorita.desmontar();
+
+// Ahora al revés: con el almacén que falla al escribir, marcar tiene que
+// revertirse y avisar.
+//
+// El almacén se llena ANTES de montar. Si estuviera vacío, la propia siembra
+// inicial intentaría escribir y fallaría, así que la página no llegaría a
+// pintar ninguna tarjeta y la prueba mediría un error de carga en vez de la
+// reversión del favorito.
+const storageCerrado = new LocalStorageMock({ fallaAlEscribir: true });
+storageCerrado.map.set('juntos:v3:citas', JSON.stringify(sd.crearIdeasSeed()));
+storageCerrado.map.set('juntos:v3:eventos', JSON.stringify(sd.crearEventosSeed()));
+const ventanaOriginal = globalThis.window;
+globalThis.window = { ...ventanaOriginal, localStorage: storageCerrado };
+const appFalloFavorita = await montarPlaneador();
+comprobar('con el almacén lleno, la lista se pinta igual', tarjetas(appFalloFavorita.raiz).length === sd.crearIdeasSeed().length, String(tarjetas(appFalloFavorita.raiz).length));
+const ideaParaMarcar = tarjetas(appFalloFavorita.raiz).find((t) => t.querySelector('button[aria-pressed="false"]'));
+await appFalloFavorita.pulsar(ideaParaMarcar.querySelector('button[aria-pressed]'));
+comprobar('si no se puede guardar, el aviso se anuncia como alerta', appFalloFavorita.raiz.querySelector('[role="alert"]') !== null);
+comprobar('el aviso explica que se ha revertido', /vuelto a como estaba|revertid/i.test([...appFalloFavorita.raiz.querySelectorAll('[role="alert"]')].map((a) => a.textContent).join(' ')), [...appFalloFavorita.raiz.querySelectorAll('[role="alert"]')].map((a) => a.textContent).join(' | '));
+comprobar('el corazón vuelve a su estado anterior', document.querySelector(`article[data-id="${ideaParaMarcar.dataset.id}"] button[aria-pressed]`)?.getAttribute('aria-pressed') === 'false');
+comprobar('la lista no se queda con el cambio a medias', tarjetas(appFalloFavorita.raiz).length === sd.crearIdeasSeed().length);
+globalThis.window = ventanaOriginal;
+await appFalloFavorita.desmontar();
+
+console.log('\n== Paso e: crear una idea propia ==');
+const appAlta = await montarPlaneador();
+await appAlta.pulsar(appAlta.porTexto('button', 'Nueva idea'));
+comprobar('el botón abre el formulario de idea', document.querySelector('[role="dialog"]') !== null);
+comprobar('el formulario es el de idea, no el de evento', document.querySelector('[role="dialog"]')?.textContent.includes('Nueva idea'), document.querySelector('[role="dialog"]')?.textContent?.slice(0, 80));
+comprobar('no pide fecha, porque una idea no tiene día', document.querySelector('[role="dialog"]')?.querySelector('input[type="date"]') === null);
+
+const formularioIdea = document.querySelector('[role="dialog"] form');
+await appAlta.enviar(formularioIdea);
+comprobar('una idea sin título no se guarda', (await ci.getIdeasCitas()).length === sd.crearIdeasSeed().length);
+comprobar('el título vacío se marca inválido', formularioIdea.querySelector('input[type="text"]').getAttribute('aria-invalid') === 'true', formularioIdea.querySelector('input[type="text"]').getAttribute('aria-invalid') ?? 'sin atributo');
+// El error de un campo NO lleva role="alert", y es a propósito: los errores de
+// campo se anuncian con aria-invalid y aria-describedby, que es lo que ata el
+// mensaje a su control. Un role="alert" por cada tecla escrita sería peor: el
+// lector lo leería en voz alta mientras se corrige.
+comprobar('el error del campo se asocia a su control', (formularioIdea.querySelector('input[type="text"]').getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean).every((id) => document.getElementById(id) !== null) && formularioIdea.textContent.includes('obligatorio'), formularioIdea.querySelector('input[type="text"]').getAttribute('aria-describedby') ?? 'null');
+comprobar('el error del campo no interrumpe con role="alert"', formularioIdea.querySelector('[role="alert"]') === null);
+comprobar('el foco va al campo que falla', document.activeElement === formularioIdea.querySelector('input[type="text"]'), `foco en ${document.activeElement?.tagName}`);
+
+await appAlta.escribir(formularioIdea.querySelector('input[type="text"]'), 'Mirar las estrellas');
+await appAlta.pulsar(formularioIdea.querySelector('button[type="submit"]'));
+comprobar('la idea nueva se guarda', (await ci.getIdeasCitas()).length === sd.crearIdeasSeed().length + 1, String((await ci.getIdeasCitas()).length));
+comprobar('el formulario se cierra tras guardar', document.querySelector('[role="dialog"]') === null);
+comprobar('la idea nueva aparece en la lista', tarjetas(appAlta.raiz).some((t) => tituloTarjeta(t) === 'Mirar las estrellas'), tarjetas(appAlta.raiz).map(tituloTarjeta).join('|'));
+comprobar('la idea nueva sí tiene botón de editar', tarjetas(appAlta.raiz).find((t) => tituloTarjeta(t) === 'Mirar las estrellas')?.querySelector('button[aria-label^="Editar"]') !== null);
+comprobar('la idea nueva sí tiene botón de borrar', tarjetas(appAlta.raiz).find((t) => tituloTarjeta(t) === 'Mirar las estrellas')?.querySelector('button[aria-label^="Borrar"]') !== null);
+comprobar('la idea nueva es editable según el origen', pl.esIdeaEditable((await ci.getIdeasCitas()).find((i) => i.titulo === 'Mirar las estrellas')));
+
+console.log('\n== Paso e: editar una idea propia ==');
+const tarjetaNueva = () => tarjetas(appAlta.raiz).find((t) => tituloTarjeta(t) === 'Mirar las estrellas');
+await appAlta.pulsar(tarjetaNueva()?.querySelector('button[aria-label^="Editar"]'));
+comprobar('editar abre el formulario con el título puesto', document.querySelector('[role="dialog"] input[type="text"]')?.value === 'Mirar las estrellas', document.querySelector('[role="dialog"] input[type="text"]')?.value);
+comprobar('el formulario anuncia que es una edición', document.querySelector('[role="dialog"]')?.textContent.includes('Editar idea'), document.querySelector('[role="dialog"]')?.textContent?.slice(0, 60));
+const formularioEdicion = document.querySelector('[role="dialog"] form');
+await appAlta.escribir(formularioEdicion.querySelector('input[type="text"]'), 'Mirar las estrellas desde el salón');
+await appAlta.pulsar(formularioEdicion.querySelector('button[type="submit"]'));
+comprobar('el título editado se guarda', (await ci.getIdeasCitas()).some((i) => i.titulo === 'Mirar las estrellas desde el salón'));
+comprobar('la lista muestra el título nuevo', tarjetas(appAlta.raiz).some((t) => tituloTarjeta(t) === 'Mirar las estrellas desde el salón'));
+comprobar('editar no crea una idea nueva', (await ci.getIdeasCitas()).length === sd.crearIdeasSeed().length + 1, String((await ci.getIdeasCitas()).length));
+
+console.log('\n== Paso e: convertir una idea en evento ==');
+const ideaDelSeed = (await ci.getIdeasCitas()).find((i) => i.origen === mo.ORIGEN.SEED);
+const ideasAntes = (await ci.getIdeasCitas()).length;
+const eventosAntes = (await ev.getEventos()).length;
+const tarjetaConIdea = tarjetas(appAlta.raiz).find((t) => t.textContent.includes(ideaDelSeed.titulo));
+await appAlta.pulsar(tarjetaConIdea.querySelector('button:not([aria-label]):not([aria-pressed])'));
+comprobar('convertir abre el formulario de evento', document.querySelector('[role="dialog"]') !== null);
+const formEvento = document.querySelector('[role="dialog"] form');
+const tituloEvento = formEvento.querySelector('[id$="titulo"]');
+const fechaEvento = formEvento.querySelector('[id$="fecha"]');
+comprobar('el evento hereda el título de la idea', tituloEvento.value === ideaDelSeed.titulo, tituloEvento.value);
+comprobar('el evento hereda la descripción de la idea', formEvento.querySelector('[id$="descripcion"]').value === ideaDelSeed.descripcion, formEvento.querySelector('[id$="descripcion"]').value);
+comprobar('el evento hereda la foto de la idea', formEvento.querySelector('img')?.getAttribute('src') === ideaDelSeed.imagen, formEvento.querySelector('img')?.getAttribute('src') ?? 'sin imagen');
+comprobar('la fecha llega vacía, no con la de hoy', fechaEvento.value === '', JSON.stringify(fechaEvento.value));
+
+// Enviarlo sin fecha tiene que fallar: es el día lo único que no se puede
+// inventar, y por eso el campo se queda sin rellenar a propósito.
+await appAlta.enviar(formEvento);
+comprobar('convertir sin fecha no guarda nada', (await ev.getEventos()).length === eventosAntes, String((await ev.getEventos()).length));
+comprobar('la fecha vacía se marca inválida', fechaEvento.getAttribute('aria-invalid') === 'true', fechaEvento.getAttribute('aria-invalid') ?? 'sin atributo');
+
+await appAlta.escribir(fechaEvento, '2026-11-14');
+await appAlta.pulsar(formEvento.querySelector('button[type="submit"]'));
+comprobar('con fecha, el evento se crea', (await ev.getEventos()).length === eventosAntes + 1, String((await ev.getEventos()).length));
+const eventoCreado = (await ev.getEventos()).find((e) => e.titulo === ideaDelSeed.titulo);
+comprobar('el evento queda con la fecha elegida', eventoCreado?.fecha === '2026-11-14', eventoCreado?.fecha);
+comprobar('el evento se guarda como cita', eventoCreado?.categoria === 'cita', eventoCreado?.categoria);
+comprobar('la idea sigue en el planeador', (await ci.getIdeasCitas()).length === ideasAntes, String((await ci.getIdeasCitas()).length));
+comprobar('convertir no borra la idea del almacén', (await ci.getIdeasCitas()).some((i) => i.id === ideaDelSeed.id));
+comprobar('la página avisa de que ya está en el calendario', appAlta.raiz.querySelector('[role="alert"]')?.textContent.includes('calendario') === true, appAlta.raiz.querySelector('[role="alert"]')?.textContent ?? '(sin texto)');
+comprobar('convertir no deja la idea marcada como favorita por error', (await ci.getIdeasCitas()).find((i) => i.id === ideaDelSeed.id)?.favorita === ideaDelSeed.favorita);
+
+console.log('\n== Paso e: borrar una idea propia ==');
+const tarjetaBorrable = () => tarjetas(appAlta.raiz).find((t) => tituloTarjeta(t) === 'Mirar las estrellas desde el salón');
+await appAlta.pulsar(
+  tarjetaBorrable()?.querySelector('button[aria-label^="Borrar"]'),
+  'el botón "Borrar" de la tarjeta "Mirar las estrellas desde el salón"',
+);
+// El modal se monta con `createPortal` sobre `document.body`, así que no está
+// dentro de `appAlta.raiz`. Buscarlo en el contenedor daría siempre null y la
+// prueba pasaría por el motivo equivocado.
+comprobar('borrar pide confirmación antes de nada', document.querySelector('[role="alertdialog"], [role="dialog"]') !== null);
+comprobar('la confirmación es un diálogo con alarma', document.querySelector('[role="alertdialog"]') !== null);
+comprobar('la confirmación nombra la idea que se borra', document.querySelector('[role="alertdialog"]')?.textContent.includes('Mirar las estrellas desde el salón'), document.querySelector('[role="alertdialog"]')?.textContent?.slice(0, 100));
+// `aria-describedby` no basta con que exista: tiene que apuntar a nodos que
+// existen de verdad, o el lector se queda sin nada que leer y el atributo solo
+// aparenta cumplir.
+const descritoPor = (document.querySelector('[role="alertdialog"]')?.getAttribute('aria-describedby') ?? '')
+  .split(' ')
+  .filter(Boolean);
+comprobar('el diálogo describe el mensaje que hay que atender', descritoPor.length > 0, `aria-describedby="${descritoPor.join(' ')}"`);
+comprobar('cada identificador de la descripción existe', descritoPor.every((id) => document.getElementById(id) !== null), descritoPor.join(' '));
+comprobar('la descripción incluye el mensaje con la idea', descritoPor.map((id) => document.getElementById(id)?.textContent ?? '').join(' ').includes('Mirar las estrellas desde el salón'));
+comprobar('el foco inicial va a la opción segura', document.activeElement?.textContent.trim() === 'Dejarla', `foco en "${document.activeElement?.textContent?.trim() ?? ''}"`);
+comprobar('todavía no se ha borrado nada', (await ci.getIdeasCitas()).length === ideasAntes, String((await ci.getIdeasCitas()).length));
+
+await appAlta.pulsar(appAlta.porTextoGlobal('button', 'Dejarla'), 'el botón "Dejarla" del diálogo de borrado, que está dentro del modal');
+comprobar('cancelar no borra', (await ci.getIdeasCitas()).length === ideasAntes, String((await ci.getIdeasCitas()).length));
+comprobar('cancelar cierra la confirmación', document.querySelector('[role="alertdialog"]') === null);
+comprobar('la idea sigue en la lista', tarjetaBorrable() !== undefined);
+
+await appAlta.pulsar(tarjetaBorrable().querySelector('button[aria-label^="Borrar"]'), 'el botón "Borrar" de la tarjeta, otra vez, para confirmar');
+await appAlta.pulsar(appAlta.porTextoGlobal('button', 'Borrar la idea'), 'el botón "Borrar la idea" del diálogo');
+comprobar('confirmar sí borra', (await ci.getIdeasCitas()).length === ideasAntes - 1, String((await ci.getIdeasCitas()).length));
+comprobar('la idea desaparece de la lista', tarjetaBorrable() === undefined);
+
+// Limpieza: se deja el almacén como estaba al empezar, para que las pruebas
+// que vengan después no dependan de lo que se haya hecho aquí.
+await ci.resetCitas();
+await appAlta.desmontar();
+comprobar('desmontar la página no deja avisos en consola', true);
+
 
 await vite.close();
 console.log(`\n${fallos === 0 ? 'TODO OK' : `${fallos} FALLOS`} — ${pruebas} pruebas, ${fallos} fallos`);

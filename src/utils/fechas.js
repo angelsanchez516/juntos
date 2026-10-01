@@ -320,5 +320,83 @@ export function estaEnRango(fecha, inicio, fin) {
   return !isBefore(fecha, inicio) && !isAfter(fecha, fin);
 }
 
+/**
+ * Agrupa una lista por mes natural y devuelve los grupos en orden descendente.
+ *
+ * La galería y la línea de tiempo muestran las fotos y los recuerdos bajo un
+ * encabezado de mes ("Octubre de 2026"). El agrupado va aquí y no en cada
+ * página por dos motivos: la clave del mes se compara como cadena
+ * (`YYYY-MM`), que ordena cronológicamente sin parsear fechas, y así las dos
+ * pantallas no pueden desincronizarse en el formato del encabezado.
+ *
+ * ORDEN DESCENDENTE A PROPÓSITO. Se agrupa desde la lista ya ordenada, y el
+ * primer mes que se ve es el del primer elemento. La galería y los momentos
+ * ordenan de más reciente a más antiguo, así que el orden se invierte aquí una
+ * sola vez en lugar de en cada pantalla.
+ *
+ * NO SE USA UN `Map` PARA ITERAR. Insertar en un `Map` no garantiza el orden
+ * salvo que se lean las claves e inserten de nuevo, que es el rodeo que hace
+ * innecesaria la función. Se construye un array de grupos a mano, que además
+ * obliga a decidir el orden de salida.
+ *
+ * @template {{fecha: string}} T Elementos con fecha ISO `YYYY-MM-DD`.
+ * @param {ReadonlyArray<T>} elementos Elementos a agrupar.
+ * @returns {ReadonlyArray<{clave: string, etiqueta: string, items: T[]}>} Grupos
+ *   ordenados de mes más reciente a más antiguo.
+ * @example
+ * agruparPorMes([
+ *   { fecha: '2026-10-14', titulo: 'Cena' },
+ *   { fecha: '2026-09-02', titulo: 'Paseo' },
+ * ])[0].etiqueta; // 'Octubre de 2026'
+ */
+export function agruparPorMes(elementos) {
+  /** @type {Map<string, any[]>} */
+  const porClave = new Map();
+
+  for (const elemento of elementos) {
+    // Una fecha inválida o ausente no debe crear un grupo "undefined" que
+    // reviente al formatear. Se descarta: es preferible no enseñar la foto que
+    // colgar la página.
+    const clave = String(elemento?.fecha ?? '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(clave)) continue;
+
+    const grupo = porClave.get(clave);
+    if (grupo) grupo.push(elemento);
+    else porClave.set(clave, [elemento]);
+  }
+
+  // Orden descendente por clave: "2026-10" > "2026-09" como cadena.
+  return [...porClave.keys()]
+    .sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))
+    .map((clave) => ({
+      clave,
+      etiqueta: etiquetaDeMes(clave),
+      items: porClave.get(clave),
+    }));
+}
+
+/**
+ * Convierte una clave de mes `YYYY-MM` en su encabezado visible.
+ *
+ * El mes se lee en UTC a propósito. `parseISO('2026-10-01')` da medianoche
+ * UTC, que en Colombia es el 30 de septiembre a las 19:00, y `format` con el
+ * locale español devolvería "septiembre" para una clave de octubre. El día 1
+ * de un mes es el único momento donde ese error de un día se nota, y por eso
+ * se construye la fecha con los números sueltos.
+ *
+ * @param {string} clave Clave `YYYY-MM`.
+ * @returns {string} Encabezado, por ejemplo "Octubre de 2026".
+ * @example
+ * etiquetaDeMes('2026-10'); // 'Octubre de 2026'
+ */
+export function etiquetaDeMes(clave) {
+  const [anio, mes] = String(clave).split('-');
+  const numero = Number(mes);
+  if (!Number.isInteger(numero) || numero < 1 || numero > 12) return '';
+
+  // Mes 1 en `new Date` es febrero: la API de `Date` cuenta desde cero.
+  return format(new Date(Number(anio), numero - 1, 1), 'MMMM yyyy', { locale: es });
+}
+
 /** Reexporta `getDay` (índice de columna del día en la cuadrícula). */
 export { getDay } from 'date-fns';

@@ -64,13 +64,26 @@ create table ideas_citas (
   descripcion  text not null default '' check (char_length(descripcion) <= 500),
   categoria    text not null check (categoria in
                  ('en-casa','afuera','aventura','relax')),
-  favorita     boolean not null default false,
+   favorita     boolean not null default false,
   imagen_path  text,
   creado_at    timestamptz not null default now()
 );
 ```
 
 Los `check` del esquema replican `src/utils/validaciones.js`. El cliente valida para dar feedback inmediato; **la base de datos es la frontera real**, porque no se puede esquivar desde fuera.
+
+### `IdeaCita.origen` no viaja a Supabase
+
+En Fase 1, `IdeaCita` lleva un campo `origen` (`'seed'` o `'usuario'`) que decide si la idea se puede editar o borrar. **Esa columna no existe en el esquema de arriba, y no debe añadirse.**
+
+El problema que resuelve `origen` es concreto de Fase 1: la app siembra 5 ideas de ejemplo en el mismo almacén donde la pareja crea las suyas, y sin una marca no hay forma de distinguir unas de otras salvo por los ids o por el texto, que se rompen en cuanto cambia el seed.
+
+En Supabase el problema desaparece por sí solo, porque el aislamiento lo da la fila:
+
+- Cada idea tiene su `id`, y cada escritura lleva el `pareja_id` de la sesión. Solo existen ideas de la pareja.
+- El ejemplo se crea al dar de alta la pareja, en `seed.js` **de la Fase 2**, y en ese momento se conoce qué filas son de ejemplo.
+
+Si aun así hiciera falta mostrarlas como "sugeridas" en lugar de "vuestras", la forma correcta no es una columna `origen` sino una marca de creación, por ejemplo `creado_por text not null default 'pareja'`, que distingue lo seed de lo propio sin depender del contenido. Lo que no debe hacerse es portar el campo tal cual: en Fase 2 ya no es la fuente de verdad y acabaría siendo un dato que hay que mantener sincronizado sin que nada lo exija.
 
 ### Las claves de categoría son slugs, y eso obliga a migrar
 
@@ -182,6 +195,7 @@ Detalle importante: con RLS, un `select` sobre un evento de otra pareja devuelve
 | `toggleFavorita(id)` | `rpc('alternar_favorita', { p_id: id })` | **Considerar una función RPC** en vez de leer y escribir: leer-modificar-escribir tiene una condición de carrera si la pareja pulsa el corazón a la vez desde dos dispositivos. |
 | `eliminarIdea(id)` | `.delete().eq('id', id)` | |
 | `convertirIdeaEnEvento(id, {fecha, hora, lugar})` | `rpc('convertir_idea_en_evento', {...})` | **RPC con `transaction`**: crea el evento y (opcionalmente) marca la idea como usada, de forma atómica. Nunca dos acciones separadas: si la segunda falla, quedaría un evento sin origen. |
+| `esIdeaEditable(idea)` | **Desaparece** | Es una regla de Fase 1 que depende de `origen`. En Supabase todas las ideas de la sesión son de la pareja, así que la comprobación se elimina del service, del hook y de la tarjeta. Ver "IdeaCita.origen no viaja a Supabase". |
 
 ### `storage.js`
 
@@ -194,6 +208,8 @@ Detalle importante: con RLS, un `select` sobre un evento de otra pareja devuelve
 | `storageDisponible()` | Comprobación de `session` | |
 | `esCuotaAgotada(error)` | **Ya no aplica** | Supabase no tiene la cuota de 5 MB. Desaparece, y con ella el problema que motivó comprimir las imágenes en el paso d. |
 | `listarClaves()`, `tamanoAproximado()` | Desaparecen | Sin almacenamiento local que medir. |
+| `VERSION_DATOS`, `claveDe()`, `limpiarVersionesAnteriores()` | Desaparecen | No hay esquema local que versionar: el `check` de cada columna hace ese trabajo, y una migración de datos es un `alter table` explícito. |
+| `VERSION_SESION`, `claveDeSesion()` | **Desaparecen, pero no se sustituyen** | En Fase 2 la sesión vive en la cookie de Supabase Auth, en el servidor, no en el navegador. Este es el punto donde `VERSION_SESION` deja de tener sentido: ver `docs/SEGURIDAD.md`. |
 
 **La única pieza de `storage.js` que sobrevive** es la capa de tolerancia a fallos: los services deben seguir envueltos en `try/catch` yuir la sesión, o una caída de red, y devolver un mensaje presentable.
 

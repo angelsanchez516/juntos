@@ -10,14 +10,24 @@ La aplicación sigue una arquitectura de capas con clara separación entre **UI*
 | **Presentación (UI)** | `src/components/`, `src/pages/` | Renderiza la interfaz, recibe interacciones del usuario. **Nunca** accede a `localStorage` directamente. |
 | **Hooks** | `src/hooks/` | Exponen datos y operaciones a las páginas (`useEventos`, `useCitas`, `useMediaQuery`). Normalizan estado, agrupan operaciones y encapsulan efectos. |
 | **Services** | `src/services/` | **Única puerta de entrada a los datos**. Funciones `async` (`getEventos`, `crearEvento`, `toggleFavorita`, ...). Internamente usan `localStorage` y siembran con `seed.js` en el primer uso. Aquí van todos los `try/catch`. |
-| **Storage** | `src/services/storage.js` | Abstracción sobre `localStorage`: claves versionadas (`juntos:v2:eventos`), parseo tolerante, detección de cuota, `resetDatos()`. Única capa que toca `localStorage`. |
+| **Storage** | `src/services/storage.js` | Abstracción sobre `localStorage`: claves versionadas (`juntos:v3:eventos`), parseo tolerante, detección de cuota, `resetDatos()`. Única capa que toca `localStorage`. |
 | **Datos iniciales** | `src/data/seed.js` | Datos de ejemplo del mockup (8 eventos + 5 ideas), con **fechas relativas al mes actual**. Solo se leen cuando el storage está vacío o corrupto. |
-| **Tipos/contratos** | `src/types/models.js` | `@typedef` de `Evento` e `IdeaCita` (fuente única de verdad). |
-| **Utilidades** | `src/utils/` | `validaciones.js` (reglas de validación compartidas), `fechas.js` (parseo y formateo con date-fns), `calendario.js` (construcción de la cuadrícula, sin React), `categorias.js` (catálogo único de categorías), `ids.js` (UUID v4). |
+| **Tipos/contratos** | `src/types/models.js` | `@typedef` de `Evento` e `IdeaCita`, y la constante `ORIGEN` (fuente única de verdad). |
+| **Utilidades** | `src/utils/` | `validaciones.js` (reglas de validación compartidas), `fechas.js` (parseo y formateo con date-fns), `calendario.js` (construcción de la cuadrícula, sin React), `categorias.js` (catálogo único de categorías), `planeador.js` (reglas puras del planeador), `ids.js` (UUID v4). |
 | **Constantes de navegación** | `src/constants/nav.js` | Rutas, menús (escritorio/móvil), perfil de pareja y marca. |
 
+## Dos versiones, no una
+`storage.js` mantiene **dos números de versión independientes**, porque no sirven para lo mismo:
+
+| Constante | Valor | Qué versiona | Qué pasa al subirla |
+|---|---|---|---|
+| `VERSION_DATOS` | 3 | La forma de los modelos: `Evento` e `IdeaCita` | La app deja de leer `juntos:v2:*`, vuelve a sembrar y escribe bajo `juntos:v3:*` |
+| `VERSION_SESION` | 1 | Lo que guarda la sesión, cuando exista | Nada: la sesión se conserva y no se regenera |
+
+El motivo de separarlas es que la sesión es el único dato que **no se puede reconstruir**: si comparte versión con los datos, un cambio de esquema cerraría la sesión de todo el mundo sin motivo. `limpiarVersionesAnteriores()` nunca borra la clave de sesión. Ver `docs/SEGURIDAD.md`.
+
 ## Flujo de datos
-1. **Primer acceso:** `eventosService.getEventos()` llama a `storage.leer()` → devuelve `null` (nada guardado, o JSON corrupto) → se siembra con `seed.js` → se guarda en `juntos:v2:eventos` → devuelve el array ordenado.
+1. **Primer acceso:** `eventosService.getEventos()` llama a `storage.leer()` → devuelve `null` (nada guardado, o JSON corrupto) → se siembra con `seed.js` → se guarda en `juntos:v3:eventos` → devuelve el array ordenado.
 2. **Página:** consume `useEventos()`, que llama al service en un efecto y guarda el resultado en estado.
 3. **Escritura:** la página llama a `crear()` del hook → el service valida con `validarEvento()` → persiste → devuelve la entidad normalizada → el hook la inserta en su lista local. **No hay re-lectura:** el evento aparece al instante sin parpadeo.
 4. **UI reacciona:** React re-renderiza con el estado ya actualizado.

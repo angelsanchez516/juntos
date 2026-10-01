@@ -25,6 +25,7 @@
 
 import { diaDelMes } from '../utils/fechas';
 import { CATEGORIA, CATEGORIA_IDEA } from '../utils/categorias';
+import { ORIGEN } from '../types/models';
 
 /**
  * IDs estables de los datos de ejemplo.
@@ -214,63 +215,82 @@ export function crearEventosSeed() {
 }
 
 /**
- * Ideas de cita de ejemplo del mockup.
+ * Ideas de cita de ejemplo del mockup, sin su origen todavía.
+ *
+ * Van aparte de `crearIdeasSeed()` a propósito. El `origen` se añade en un solo
+ * sitio, en el `map` de esa función, y no escrito cinco veces en estos objetos: si
+ * estuviera en cada literal, añadir una sexta idea obligaría a acordarse de
+ * escribir `origen: ORIGEN.SEED` en ella, y una idea sin esa línea se
+ * confundiría con una idea propia y se podría editar o borrar sin querer. Aquí
+ * es imposible: toda idea que salga de aquí lleva origen.
  *
  * Las dos primeras se marcan como favoritas, como en el mockup.
+ *
+ * @type {ReadonlyArray<Omit<import('../types/models.js').IdeaCita, 'origen'>>}
+ */
+const IDEAS_SEED = Object.freeze([
+  {
+    id: IDS_SEED_IDEAS.CINE_CASA,
+    titulo: 'Noche de cine en casa',
+    descripcion:
+      'Luz apagada, manta y algo rico para picar. Película que ya vimos mil veces pero da igual.',
+    categoria: CATEGORIA_IDEA.EN_CASA,
+    favorita: true,
+    imagen: fotoPlaceholder('idea-cine-casa', 800, 600),
+  },
+  {
+    id: IDS_SEED_IDEAS.PICNIC,
+    titulo: 'Picnic en el parque',
+    descripcion:
+      'Manta a la sombra, algo de picar y no mirar el reloj. Llevar un libro por si acaso.',
+    categoria: CATEGORIA_IDEA.AFUERA,
+    favorita: true,
+    imagen: fotoPlaceholder('idea-picnic', 800, 600),
+  },
+  {
+    id: IDS_SEED_IDEAS.ESCAPADA,
+    titulo: 'Escapada de fin de semana',
+    descripcion:
+      'Carretera, un sitio con piscina y ninguna lista de cosas que hacer. Dormir sin alarma.',
+    categoria: CATEGORIA_IDEA.AVENTURA,
+    favorita: false,
+    imagen: fotoPlaceholder('idea-escapada', 800, 600),
+  },
+  {
+    id: IDS_SEED_IDEAS.COCINAR,
+    titulo: 'Cocinar juntos',
+    descripcion:
+      'Elegimos la receta más ambiciosa que encontremos y vemos qué sale. Perdemos el primer intento.',
+    categoria: CATEGORIA_IDEA.EN_CASA,
+    favorita: false,
+    imagen: fotoPlaceholder('idea-cocinar', 800, 600),
+  },
+  {
+    id: IDS_SEED_IDEAS.SPA,
+    titulo: 'Día de spa en pareja',
+    descripcion:
+      'Masajes, baños y cero prisa. El mejor regalo de cumpleaños que no cuesta nada.',
+    categoria: CATEGORIA_IDEA.RELAX,
+    favorita: false,
+    imagen: fotoPlaceholder('idea-spa', 800, 600),
+  },
+]);
+
+/**
+ * Ideas de cita de ejemplo del mockup.
+ *
+ * Todas llevan `origen: 'seed'`, y por eso ninguna se puede editar ni borrar
+ * desde el planeador: son contenido de ejemplo, y borrarlas dejaría la pantalla
+ * más vacía de lo que empezó sin forma de recuperarlas.
  *
  * @returns {Array<import('../types/models.js').IdeaCita>} Ideas nuevas.
  * @example
  * const ideas = crearIdeasSeed();
  * ideas[0].favorita; // true
+ * ideas[0].origen;   // 'seed'
  */
 export function crearIdeasSeed() {
-  return [
-    {
-      id: IDS_SEED_IDEAS.CINE_CASA,
-      titulo: 'Noche de cine en casa',
-      descripcion:
-        'Luz apagada, manta y algo rico para picar. Película que ya vimos mil veces pero da igual.',
-      categoria: CATEGORIA_IDEA.EN_CASA,
-      favorita: true,
-      imagen: fotoPlaceholder('idea-cine-casa', 800, 600),
-    },
-    {
-      id: IDS_SEED_IDEAS.PICNIC,
-      titulo: 'Picnic en el parque',
-      descripcion:
-        'Manta a la sombra, algo de picar y no mirar el reloj. Llevar un libro por si acaso.',
-      categoria: CATEGORIA_IDEA.AFUERA,
-      favorita: true,
-      imagen: fotoPlaceholder('idea-picnic', 800, 600),
-    },
-    {
-      id: IDS_SEED_IDEAS.ESCAPADA,
-      titulo: 'Escapada de fin de semana',
-      descripcion:
-        'Carretera, un sitio con piscina y ninguna lista de cosas que hacer. Dormir sin alarma.',
-      categoria: CATEGORIA_IDEA.AVENTURA,
-      favorita: false,
-      imagen: fotoPlaceholder('idea-escapada', 800, 600),
-    },
-    {
-      id: IDS_SEED_IDEAS.COCINAR,
-      titulo: 'Cocinar juntos',
-      descripcion:
-        'Elegimos la receta más ambiciosa que encontremos y vemos qué sale. Perdemos el primer intento.',
-      categoria: CATEGORIA_IDEA.EN_CASA,
-      favorita: false,
-      imagen: fotoPlaceholder('idea-cocinar', 800, 600),
-    },
-    {
-      id: IDS_SEED_IDEAS.SPA,
-      titulo: 'Día de spa en pareja',
-      descripcion:
-        'Masajes, baños y cero prisa. El mejor regalo de cumpleaños que no cuesta nada.',
-      categoria: CATEGORIA_IDEA.RELAX,
-      favorita: false,
-      imagen: fotoPlaceholder('idea-spa', 800, 600),
-    },
-  ];
+  return IDEAS_SEED.map((idea) => ({ ...idea, origen: ORIGEN.SEED }));
 }
 
 /**

@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import Modal from '../ui/Modal';
+import ConfirmarSalida from '../ui/ConfirmarSalida';
 import SelectorFoto from './SelectorFoto';
 import { ORDEN_CATEGORIAS_EVENTO, obtenerCategoria } from '../../utils/categorias';
 import { ErrorValidacion, LIMITES, validarEvento } from '../../utils/validaciones';
@@ -49,6 +50,13 @@ const VACIO = Object.freeze({
  *   del día que la persona pulsó en el calendario, no de "hoy": si abre el
  *   formulario desde el 14 y el día 14 no se guarda, no tiene sentido que
  *   aparezca el 30.
+ * @property {object} [valoresIniciales] Valores con los que se rellena el
+ *   formulario, del tirón. Lo usa la conversión de una idea en evento: título,
+ *   descripción, foto y categoría llegan puestos, y la fecha llega vacía
+ *   porque una idea no tiene día. Cuando se pasa, el modal NO pone fecha por su
+ *   cuenta, ni la de hoy ni la de `fechaInicial`. Tiene prioridad sobre
+ *   `fechaInicial`, pero no sobre `evento`: si hay un evento que editar, sus
+ *   datos mandan sobre cualquier precarga.
  * @property {boolean} [guardando] Si el guardado está en curso. Deshabilita el
  *   botón para impedir el doble envío.
  */
@@ -157,6 +165,7 @@ function ContenidoFormulario({
   ref,
   evento,
   fechaInicial,
+  valoresInicialesPadre,
   guardando,
   onCerrar,
   onGuardar,
@@ -165,20 +174,32 @@ function ContenidoFormulario({
   /**
    * Estado inicial del formulario, calculado en el momento del montaje.
    *
+   * Tres caminos, en este orden: editar un evento existente, recibir los
+   * valores de quien llama —la conversión desde el planeador— o crear uno nuevo
+   * con la fecha del día pulsado. Los valores de quien llama se respetan tal
+   * cual, incluida una `fecha` vacía: quien los pasa ya ha decidido qué fecha
+   * poner, y si no es ninguna, rellenarla sería tomar una decisión en nombre de
+   * quien la tiene que tomar.
+   *
    * @returns {object} Valores con los que arranca el formulario.
    */
-  const valoresIniciales = () =>
-    evento
-      ? {
-          titulo: evento.titulo ?? '',
-          fecha: evento.fecha ?? '',
-          hora: evento.hora ?? '',
-          descripcion: evento.descripcion ?? '',
-          lugar: evento.lugar ?? '',
-          categoria: evento.categoria ?? ORDEN_CATEGORIAS_EVENTO[0],
-          foto: evento.foto ?? null,
-        }
-      : { ...VACIO, fecha: fechaInicial || hoyISO() };
+  const valoresIniciales = () => {
+    if (evento) {
+      return {
+        titulo: evento.titulo ?? '',
+        fecha: evento.fecha ?? '',
+        hora: evento.hora ?? '',
+        descripcion: evento.descripcion ?? '',
+        lugar: evento.lugar ?? '',
+        categoria: evento.categoria ?? ORDEN_CATEGORIAS_EVENTO[0],
+        foto: evento.foto ?? null,
+      };
+    }
+    if (valoresInicialesPadre) {
+      return { ...VACIO, ...valoresInicialesPadre };
+    }
+    return { ...VACIO, fecha: fechaInicial || hoyISO() };
+  };
 
   const [valores, setValores] = useState(valoresIniciales);
   const [errores, setErrores] = useState({});
@@ -552,56 +573,6 @@ function ContenidoFormulario({
 }
 
 /**
- * Aviso de "hay cosas sin guardar" al intentar cerrar.
- *
- * Va dentro del mismo `Modal`, en lugar de un `window.confirm()`, por dos
- * razones: `confirm()` bloquea la vista, no se puede estilar y su texto no lleva
- * la tipografía de la app. Además, muchos lectores de pantalla lo ignoran.
- *
- * @param {object} props Propiedades del aviso.
- * @param {() => void} props.onCancelar Vuelve al formulario sin cerrar.
- * @param {() => void} props.onConfirmar Cierra y descarta lo escrito.
- * @returns {import('react').ReactElement} Panel de confirmación.
- */
-function ConfirmarSalida({ onCancelar, onConfirmar }) {
-  const cancelarRef = useRef(null);
-
-  useEffect(() => {
-    cancelarRef.current?.focus();
-  }, []);
-
-  return (
-    <div role="alertdialog" aria-labelledby="salida-titulo" className="space-y-4">
-      <div>
-        <h2 id="salida-titulo" className="text-base font-semibold text-slate-900">
-          ¿Salir sin guardar?
-        </h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Has escrito algo que no se ha guardado. Si sales ahora, se pierde.
-        </p>
-      </div>
-      <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-        <button
-          type="button"
-          ref={cancelarRef}
-          onClick={onCancelar}
-          className="rounded-pill border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-        >
-          Seguir editando
-        </button>
-        <button
-          type="button"
-          onClick={onConfirmar}
-          className="rounded-pill bg-red-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-800"
-        >
-          Salir y perderlo
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/**
  * Escapa un id para poder usarlo en un selector CSS.
  *
  * `CSS.escape` no está disponible en todas partes (Node no lo trae), y los ids
@@ -635,9 +606,18 @@ export default function EventoFormModal({
   onGuardar,
   evento = null,
   fechaInicial,
+  valoresIniciales: valoresInicialesPadre,
   guardando = false,
 }) {
   const editando = Boolean(evento?.id);
+  /*
+   * Si quien llama trae valores concretos, el modal deja de poner fecha por su
+   * cuenta. Es el caso de "convertir una idea en evento": la idea no tiene
+   * fecha, precisamente porque le falta, y rellenarla con la de hoy haría que
+   * quien abriera el formulario creyera que el día ya estaba pensado. Aquí la
+   * fecha llega vacía y la validación la marca como pendiente.
+   */
+  const hayValoresPadre = valoresInicialesPadre !== undefined && valoresInicialesPadre !== null;
 
   /*
    * El contenido vive detrás de un ref porque se remonta con cada apertura, así
@@ -698,6 +678,7 @@ export default function EventoFormModal({
           key={`${abierto ? 'abierto' : 'cerrado'}:${evento?.id ?? 'nuevo'}:${editando ? 'edicion' : 'alta'}`}
           evento={evento}
           fechaInicial={fechaInicial}
+          valoresInicialesPadre={hayValoresPadre ? valoresInicialesPadre : null}
           guardando={guardando}
           onCerrar={pedirCierre}
           onGuardar={onGuardar}

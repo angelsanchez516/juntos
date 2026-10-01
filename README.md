@@ -2,7 +2,7 @@
 
 "Juntos" es una aplicación web responsive para parejas: combina un calendario de recuerdos con un planeador de citas. Esta fase 1 es un prototipo **solo frontend**, con datos simulados persistidos en `localStorage`.
 
-## Estado actual (Pasos a, b, c y d)
+## Estado actual (Pasos a, b, c, d y e)
 - [x] Setup Vite + React (JS)
 - [x] Tailwind CSS v3.4.17 fijado (decisión para mantener `tailwind.config.js`)
 - [x] React Router + rutas (Inicio, Calendario, EventoDetalle, Planeador, Momentos, Galería, Configuración y Bienvenida fuera del layout)
@@ -19,7 +19,8 @@
 - [x] **Fotos**: selector accesible, validación en dos fases (MIME/tamaño y magic bytes), y recompresión a 1200 px WebP ~0.8 que elimina EXIF y GPS
 - [x] **Formulario de evento** único para alta y edición, con validación por campo, foco en el primer error y aviso al cerrar con cambios sin guardar
 - [x] **Detalle del evento** con edición, borrado confirmado, vuelta a `?mes=` y enlace a la galería
-- [ ] Planeador de citas (paso e)
+- [x] **Planeador de citas** (paso e): alta, edición y borrado de ideas propias, favoritas con actualización optimista, conversión a evento y filtros por categoría y favoritas en la URL
+- [x] **Origen de las ideas**: `IdeaCita.origen` distingue las del seed de las de la pareja, y solo estas se pueden editar o borrar
 - [ ] Galería (paso f)
 - [ ] Pulido final y vistas Semana/Día (paso g)
 
@@ -53,12 +54,14 @@ Página/Componente  →  Hook  →  Service  →  localStorage
                      └-- no cambia al migrar a Supabase
 ```
 
-- **Claves versionadas:** `juntos:v2:eventos` y `juntos:v2:citas`. Si el modelo cambia, se sube `VERSION_DATOS` y la app deja de leer las claves antiguas sin código de migración.
+- **Claves versionadas:** `juntos:v3:eventos` y `juntos:v3:citas`. Si el modelo cambia, se sube `VERSION_DATOS` y la app deja de leer las claves antiguas sin código de migración.
+- **Dos versiones, no una:** la sesión lleva la suya (`VERSION_SESION`), separada de la de los datos. Si compartieran número, un cambio de esquema cerraría la sesión de todo el mundo.
 - **Categorías en un solo archivo:** `src/utils/categorias.js` es la única fuente. La clave es un slug sin acentos ni espacios porque va al almacén y a la URL; la etiqueta visible sí los lleva. Ningún otro archivo escribe un slug.
 - **Fechas del seed relativas al mes actual:** con las fechas literales del mockup (septiembre 2025) el calendario del mes actual saldría vacío.
 - **Validación en dos capas:** el formulario da el feedback, el service rechaza. En Fase 2 la base de datos replicará las mismas reglas.
 - **Fotos en dos fases:** primero el tipo y el tamaño que declara el navegador, y después los magic bytes reales. Sin la segunda fase, un SVG renombrado a `.jpg` pasaba el filtro. La recompresión con canvas es también lo que elimina EXIF y GPS.
 - **IDs con `crypto.randomUUID()`:** UUID v4, compatible con las claves de Supabase e imposible de adivinar.
+- **Las ideas del seed no se editan ni se borran:** `IdeaCita.origen` dice de dónde viene cada una, y solo las de la pareja tienen botones de editar y borrar. Sin ese campo habría que reconocerlas por sus ids o por su contenido, que se rompe en cuanto cambia el seed.
 - **La cuadrícula se calcula fuera de React**, en funciones puras de `src/utils/calendario.js`, para poder testearla sin montar componentes.
 - **Ninguna fecha se construye con `new Date('YYYY-MM-DD')`:** esa cadena es UTC, y en Bogotá (UTC-5) el 1 de octubre sería el 30 de septiembre a las 19:00. Todo pasa por `parseISO` o por números sueltos.
 

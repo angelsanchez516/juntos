@@ -32,8 +32,29 @@
  * ("cita", "viaje"). Al convertir una idea en evento, la idea aporta título,
  * descripción, foto y categoría de contexto.
  *
- * @typedef {'en casa'|'afuera'|'aventura'|'relax'} CategoriaIdeaCita
+ * LAS CLAVES TIENEN GUION, NO ESPACIO. `en-casa` y no `en casa`: el valor viaja a
+ * la URL como `?categoria=en-casa`, al almacén y a una columna de la base de
+ * datos, y un espacio obliga a escaparlo en las tres. Este typedef se escribió
+ * una vez con un espacio, que es exactamente el error que el catálogo comprueba
+ * al arrancar; las claves válidas las lleva `CATEGORIAS_IDEA`.
+ *
+ * @typedef {'en-casa'|'afuera'|'aventura'|'relax'} CategoriaIdeaCita
  */
+
+/**
+ * Origen de una {@link IdeaCita}: la escribió el seed o la persona usuaria.
+ *
+ * Vive aquí y no en `citasService` porque el seed también lo necesita, y el
+ * service importa al seed: ponerlo en el service obligaría al seed a importar
+ * al service y crearía un ciclo. Este módulo no importa nada, así que todos
+ * pueden depender de él.
+ *
+ * @type {Readonly<Record<string, 'seed'|'usuario'>>}
+ */
+export const ORIGEN = Object.freeze({
+  SEED: 'seed',
+  USUARIO: 'usuario',
+});
 
 /**
  * Un recuerdo con fecha: el corazón de la aplicación.
@@ -70,6 +91,11 @@
  * @property {boolean} favorita Marcada con el corazón. Solo hay una por
  *   pareja, así que se almacena como boolean en lugar de lista.
  * @property {string|null} [imagen] URL o base64 de la imagen de la tarjeta.
+ * @property {'seed'|'usuario'} origen Quién escribió la idea. Solo las de
+ *   `usuario` se pueden editar o borrar: las del seed son contenido de ejemplo
+ *   y borrarlas dejaría el planeador más vacío de lo que empezó. Lo escribe el
+ *   service al crear y lo conserva al editar, nunca el formulario.
+ *   @see ORIGEN
  */
 
 /**

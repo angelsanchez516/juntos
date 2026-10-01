@@ -21,7 +21,9 @@
 
 import { crearIdeasSeed } from '../data/seed';
 import { nuevoId } from '../utils/ids';
+import { ORIGEN } from '../types/models';
 import { ErrorValidacion, esIdValido, validarIdea } from '../utils/validaciones';
+import { ordenarIdeas } from '../utils/planeador';
 import { COLECCIONES, ErrorCuotaAlmacenamiento, borrar, guardar, leer } from './storage';
 import { ErrorServicio, crearEvento } from './eventosService';
 
@@ -45,7 +47,7 @@ export async function getIdeasCitas() {
       return seed;
     }
 
-    return ordenarIdeas(guardadas);
+    return ordenarIdeas(normalizarOrigenes(guardadas));
   } catch (error) {
     /*
      * El error de cuota se propaga sin envolver. En `getIdeasCitas` ocurre al
@@ -67,22 +69,39 @@ export async function getIdeasCitas() {
 }
 
 /**
- * Ordena las ideas: favoritas primero, luego alfabéticamente por título.
+ * Normaliza el origen de una idea leída del almacén.
  *
- * Es el orden que espera la interfaz del planeador, donde las favoritas se
- * muestran al principio de la lista.
+ * Se usa al leer, no solo al escribir, porque el almacén puede contener datos
+ * de una versión anterior o editados a mano. Una idea con un origen desconocido
+ * se trata como del seed: es la opción conservadora, porque deja la idea
+ * visible y no pierde nada. El caso inverso —dar por propia una idea del seed—
+ * abriría el formulario de edición sobre contenido de ejemplo, que es el error
+ * más barato de los dos.
  *
- * @param {Array<import('../types/models.js').IdeaCita>} ideas Ideas a ordenar.
- * @returns {Array<import('../types/models.js').IdeaCita>} Nuevo array ordenado,
- *   sin mutar el original.
+ * @param {unknown} valor Valor leído del almacén.
+ * @returns {string} `ORIGEN.SEED` o `ORIGEN.USUARIO`.
  * @example
- * ordenarIdeas(ideas)[0].favorita; // true
+ * normalizarOrigen('usuario'); // 'usuario'
+ * normalizarOrigen(undefined); // 'seed'
  */
-function ordenarIdeas(ideas) {
-  return [...ideas].sort((a, b) => {
-    if (a.favorita !== b.favorita) return a.favorita ? -1 : 1;
-    return String(a.titulo).localeCompare(String(b.titulo), 'es');
-  });
+export function normalizarOrigen(valor) {
+  return valor === ORIGEN.USUARIO ? ORIGEN.USUARIO : ORIGEN.SEED;
+}
+
+/**
+ * Normaliza el `origen` de todas las ideas leídas.
+ *
+ * Se aplica en la lectura y no solo en la escritura para que el resto de la app
+ * no tenga que volver a comprobarlo: la interfaz, el hook y las pruebas reciben
+ * siempre un `origen` en uno de los dos valores válidos.
+ *
+ * @param {Array<import('../types/models.js').IdeaCita>} ideas Ideas leídas.
+ * @returns {Array<import('../types/models.js').IdeaCita>} Copia con el origen normalizado.
+ * @example
+ * normalizarOrigenes([{ titulo: 'Picnic' }])[0].origen; // 'seed'
+ */
+export function normalizarOrigenes(ideas) {
+  return ideas.map((idea) => ({ ...idea, origen: normalizarOrigen(idea.origen) }));
 }
 
 /**
@@ -125,7 +144,13 @@ export async function crearIdea(datos) {
 
   try {
     const ideas = await getIdeasCitas();
-    const idea = { ...limpio, id: nuevoId() };
+    /*
+     * El `origen` lo pone el service, no quien llama. Si lo aceptáramos desde
+     * `datos`, un formulario podría enviar `origen: 'seed'` y crear una idea
+     * propia que queda protegida frente a la edición y el borrado. Lo único que
+     * sale de la petición es `ORIGEN.USUARIO`.
+     */
+    const idea = { ...limpio, id: nuevoId(), origen: ORIGEN.USUARIO };
 
     guardar(COLECCIONES.CITAS, ordenarIdeas([...ideas, idea]));
     return idea;
@@ -165,11 +190,19 @@ export async function actualizarIdea(id, datos) {
     }
 
     const existente = ideas[indice];
-    // `id` no es entrada de usuario: se restaura aunque venga en `datos`.
-    const { id: _ignorado, ...campos } = datos ?? {};
+    /*
+     * Ni `id` ni `origen` son entradas de usuario. El `id` es la clave primaria
+     * y el `origen` decide si la idea se puede editar: los dos se restauran
+     * aunque vengan dentro de `datos`.
+     */
+    const { id: _ignorado, origen: _ignorado2, ...campos } = datos ?? {};
 
     const limpio = validarIdea({ ...existente, ...campos });
-    const actualizada = { ...limpio, id: existente.id };
+    const actualizada = {
+      ...limpio,
+      id: existente.id,
+      origen: normalizarOrigen(existente.origen),
+    };
 
     const copia = [...ideas];
     copia[indice] = actualizada;

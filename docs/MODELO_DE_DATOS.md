@@ -10,12 +10,15 @@ Definición de las entidades, sus tipos, sus reglas de validación y cómo se al
 
 | Colección | Clave en `localStorage` | Contenido |
 |---|---|---|
-| Eventos | `juntos:v2:eventos` | `Evento[]` |
-| Ideas de cita | `juntos:v2:citas` | `IdeaCita[]` |
+| Eventos | `juntos:v3:eventos` | `Evento[]` |
+| Ideas de cita | `juntos:v3:citas` | `IdeaCita[]` |
+| Sesión | `juntos:v1:sesion` | Objeto de sesión. **Todavía no se escribe**: `Bienvenida` navega sin más. |
 
 El formato de la clave es `juntos:v{VERSION}:{coleccion}` (ver `VERSION_DATOS` en `src/services/storage.js`).
 
 **Por qué versionar la clave y no el contenido:** si el esquema cambia, subir `VERSION_DATOS` hace que la app deje de leer las claves antiguas y escriba bajo las nuevas. No hay que escribir código de migración para datos de prueba, y los datos antiguos no se interpretan con el esquema nuevo (lo que sí rompería). `limpiarVersionesAnteriores()` borra lo viejo cuando haga falta.
+
+**Por qué la sesión tiene versión aparte:** `VERSION_SESION` no sigue a `VERSION_DATOS`. La sesión es el único dato que no se puede regenerar —el seed se vuelve a sembrar solo, una sesión no— así que un cambio de esquema no puede cerrar la sesión de nadie. Por eso `limpiarVersionesAnteriores()` nunca borra su clave. Ver `docs/SEGURIDAD.md`.
 
 **Historial de versiones:**
 
@@ -23,6 +26,7 @@ El formato de la clave es `juntos:v{VERSION}:{coleccion}` (ver `VERSION_DATOS` e
 |---|---|---|
 | `v1` | Primera versión. Categorías con clave `cumpleaños` (con ñ) y `en casa` (con espacio). | El seed usaba `cumpleanos` y el orden `en casa`, así que esos valores no existían en el objeto de categorías. |
 | `v2` | Claves de categoría normalizadas a slugs ASCII: `cumpleanos`, `en-casa`. | Los datos en `v1` eran inválidos según el esquema nuevo. |
+| `v3` | `IdeaCita` gana el campo `origen`. | Sin él no hay forma de saber si una idea se puede editar o borrar. Solo se podría reconocer por sus ids o por su contenido, y ambas cosas se rompen en cuanto cambia el seed. |
 
 ---
 
@@ -83,7 +87,8 @@ Se aplican con `style={{ backgroundColor }}`, no con clases de Tailwind, porque 
   descripcion: 'Luz apagada, manta y algo rico para picar...',
   categoria: 'en-casa',
   favorita: true,
-  imagen: 'https://picsum.photos/seed/idea-cine-casa/800/600'  // o null
+  imagen: 'https://picsum.photos/seed/idea-cine-casa/800/600',  // o null
+  origen: 'seed'                                            // 'seed' o 'usuario'
 }
 ```
 
@@ -95,6 +100,22 @@ Se aplican con `style={{ backgroundColor }}`, no con clases de Tailwind, porque 
 | `categoria` | `CategoriaIdeaCita` | Sí | Una de: `en-casa`, `afuera`, `aventura`, `relax`. |
 | `favorita` | `boolean` | No (por defecto `false`) | Booleano estricto, no string `"true"`. |
 | `imagen` | `string` \| `null` | No | Mismas reglas que `foto`. |
+| `origen` | `OrigenIdea` | Sí | `ORIGEN.SEED` o `ORIGEN.USUARIO`. Lo asigna el service; el formulario no lo manda. |
+
+### `origen`: de dónde viene cada idea
+
+`ORIGEN` se define en `src/types/models.js` y vale exactamente `'seed'` o `'usuario'`.
+
+| Valor | Qué es | ¿Se edita? | ¿Se borra? |
+|---|---|---|---|
+| `seed` | Viene de `src/data/seed.js` | No | No |
+| `usuario` | La creó la pareja | Sí | Sí |
+
+**Por qué hace falta:** la app siembra 5 ideas de ejemplo. Si la pareja puede editarlas y borrarlas, la primera vez que alguien toca una se pierde el contenido de ejemplo, y no hay forma de saber cuáles quedaban. La otra opción, reconocerlas por sus ids o por su texto, es frágil: en cuanto cambie el seed, deja de funcionar, y sin querer empieza a tratar como editable una idea de la pareja solo porque su título coincida con uno del ejemplo.
+
+**Por qué se sube la versión a 3:** las ideas ya guardadas en `v2` no tienen el campo. Rellenarlo como `usuario` sería inventarse un dato, y hacerlo como `seed` dejaría ideas de la pareja sin poder editar. La app prefiere perder esas ideas de prueba y volver a sembrar: al menos el dato que queda sí dice la verdad. En Fase 2 el problema desaparece, porque cada idea es una fila con su propio registro y no hay seed mezclado.
+
+**Cómo se aplica:** `crearIdeasSeed()` marca todas como `seed`; `crearIdea()` fuerza `usuario`; `actualizarIdea()` conserva el valor que ya tenía e **ignora** el que venga en los datos, para que editar una idea no la convierta en seed ni al revés. `normalizarOrigen()` trata cualquier valor distinto de `usuario` como `seed`, que es lo conservador: ante un dato dudoso, se presume que no es editable.
 
 ### Categorías de idea
 

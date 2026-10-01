@@ -4,6 +4,49 @@ Todas las novedades de esta fase. Las secciones se rellenan **al terminar cada p
 
 ---
 
+## Paso e — Planeador de citas
+
+### Añadido
+- **Página `Planeador` real**, antes un marcador de posición. Alta, edición, borrado, favoritas y conversión a evento.
+- **`IdeaCita.origen`**: campo nuevo que marca cada idea como `seed` o `usuario` (`ORIGEN` en `src/types/models.js`). Solo las de `usuario` se pueden editar o borrar.
+- **`crearIdeasSeed()`** en `src/data/seed.js`: un único `map` que devuelve copias del seed con `ORIGEN.SEED`, en lugar de repetir el literal en cada sitio.
+- **`src/utils/planeador.js`**: reglas puras del planeador. `esIdeaEditable`, `normalizarOrigen`, `ideaAValoresEvento`, `ordenarIdeas`, lectura y escritura de los filtros en la URL, y el degradado de reserva de la imagen.
+- **`ordenarIdeas()`** compartida por `citasService` y `useCitas`, para que el orden no esté escrito dos veces.
+- **Filtros en la URL**: `?categoria=…` y `?favoritas=1`. Se pueden compartir y el botón "atrás" funciona. `useCitas` es controlado por esos parámetros.
+- **Favorita con actualización optimista**: la tarjeta cambia al instante y, si el guardado falla, vuelve a como estaba y lo dice con un `role="alert"`.
+- **Conversión a evento**: precarga `EventoFormModal` con el título, la descripción, la foto y la categoría `cita`, y **la fecha vacía**. La idea no se borra ni se marca: sigue en el planeador.
+- **Componentes nuevos** en `src/components/citas/`: `IdeaFormModal`, `TarjetaIdea`, `FiltrosIdeas`, `ImagenIdea`.
+- **`ui/Interruptor.jsx`**: el conmutador de "Solo favoritas", con `role="switch"`.
+- **`ui/ConfirmarSalida.jsx`**: el aviso de "¿salir sin guardar?" extraído a un componente, para que lo reutilicen el formulario de evento y el de idea. Enfoca la opción que no pierde nada.
+- **`Modal` acepta `rol`**: los `alertdialog` de confirmación (borrar) usan ese rol, que es el que dice que el contenido es urgente. Por defecto sigue siendo `dialog`.
+- **`Modal` acepta `descripcionAdicional`**: identificadores extra que se suman al `aria-describedby`, para que el diálogo describa también el párrafo que explica qué va a pasar.
+- **`VERSION_SESION` en `storage.js`**, con su propia clave `juntos:v1:sesion`. La sesión no comparte versión con los datos: si compartiera, un cambio de esquema cerraría la sesión de todo el mundo. `limpiarVersionesAnteriores()` nunca la borra. La constante ya existe, aunque la sesión todavía no se escriba: `Bienvenida` sigue sin guardar nada.
+
+### Cambiado
+- **`VERSION_DATOS` sube de 2 a 3.** Las claves de las ideas pasan a `juntos:v3:citas` y los eventos a `juntos:v3:eventos`.
+- **`citasService`**: `crearIdea()` fuerza `ORIGEN.USUARIO` y `actualizarIdea()` conserva el origen que ya tenía, ignorando el que venga en los datos, para que editar no convierta una idea en seed ni al revés.
+- **`EventoFormModal`** admite `valoresIniciales`, con la fecha vacía respetada.
+- **`ui/Modal.jsx`** ya no fija `role="dialog"` en el JSX, lo toma de la prop.
+
+### Correcciones
+- **La seed se había corrompido en UTF-8** por una edición desde PowerShell y se recuperó desde Git. La revisión de codificación de los 63 ficheros del proyecto no encuentra U+FFFD, BOM, bytes nulos ni mojibake.
+- **`IdeaCita.categoria`** tenía `CategoriaIdea` en el `@typedef`, que no existe; ahora es `CategoriaIdeaCita`.
+- **La suite se cortaba en silencio** al no encontrar un botón: `pulsar()` lanzaba un `pulsar() recibió null` sin más contexto, y en un archivo de más de dos mil líneas eso perdía las comprobaciones que sí habían pasado. Ahora `pulsar`, `escribir` y `enviar` dicen qué estaban buscando.
+- **El arnés no tenía forma de buscar dentro de un modal.** `porTexto()` solo miraba el contenedor del componente, y los modales se montan por `createPortal` sobre `document.body`. Una prueba de un `alertdialog` habría dado `null` siempre, y `null` se habría leído como que el diálogo no existía. Añadido `porTextoGlobal()`.
+
+### Decisión: qué pasa con las ideas al subir a v3
+Las ideas ya guardadas en v2 **no tienen `origen`** y no se pueden distinguir de las de la pareja. Rellenarlas como `usuario` sería inventarse un dato, y como `seed` dejaría ideas propias sin poder editar. La app prefiere perder esas ideas de prueba y volver a sembrar, de forma que lo que queda sí dice la verdad. Es un coste aceptable en un prototipo de datos de ejemplo; en Fase 2 no aplica, porque allí cada idea es una fila y no hay seed mezclado. Ver `docs/MIGRACION_SUPABASE.md`.
+
+### Verificación
+- `npm test`: 634 comprobaciones, 0 fallos, estable en 3 pasadas seguidas.
+- `npm run lint`: 0 avisos y 0 errores.
+- `npm run build`: correcto.
+- Codificación revisada en los 63 ficheros del proyecto, incluidos los `.md` tocados.
+- **Las expectativas se comprobaron contra el código, no contra sí mismas:** se invirtió a propósito el conteo de una comprobación de borrado y la suite la detectó (`634 pruebas, 1 fallos`) en lugar de darla por buena. Después se restauró.
+- Pendiente de comprobación manual, por necesitar un dispositivo real: orientación EXIF con una foto vertical, stripping de GPS, el botón "Guardar" con el teclado abierto a ~375 px, y contraste y fidelidad visual.
+
+---
+
 ## Paso a — Setup + layout + navegación responsive
 
 ### Añadido

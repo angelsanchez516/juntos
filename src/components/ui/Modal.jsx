@@ -24,6 +24,10 @@ import { X } from 'lucide-react';
  * @property {string} titulo Título del diálogo, mostrado en la cabecera.
  * @property {import('react').ReactNode} children Contenido del modal.
  * @property {string} [descripcion] Texto secundario bajo el título.
+ * @property {string[]} [descripcionAdicional] Identificadores de nodos fuera del
+ *   modal que también forman parte de su descripción, por ejemplo el párrafo que
+ *   explica qué va a pasar. Se añaden al final del `aria-describedby` y en el
+ *   orden en que se pasan. Por defecto, ninguno.
  * @property {'sm'|'md'|'lg'} [ancho] Ancho máximo del panel. Por defecto `'md'`.
  * @property {import('react').ReactNode} [pie] Contenido de la barra inferior de
  *   acciones, normalmente botones.
@@ -31,6 +35,13 @@ import { X } from 'lucide-react';
  * @property {() => void} [onCerrarRechazado] Se llama cuando se intenta cerrar
  *   y `onCerrar` no cambia `abierto`. Sirve para que el padre avise de que hay
  *   cambios sin guardar.
+ * @property {'dialog'|'alertdialog'} [rol] Rol del panel. Por defecto
+ *   `'dialog'`. Las confirmaciones de algo destructivo —borrar, descartar lo
+ *   escrito— pasan `'alertdialog'`: según la especificación, es el rol que
+ *   indica que el contenido es urgente y que el lector tiene que interrumpir lo
+ *   que estuviera haciendo para atenderlo. Un `dialog` normal se trataría como
+ *   una ventana más, y quien fuera con lector de pantalla podría no enterarse
+ *   de que hay una pregunta esperándole.
  */
 
 /** Anchos máximos del panel. */
@@ -129,10 +140,12 @@ export default function Modal({
   onCerrar,
   titulo,
   descripcion,
+  descripcionAdicional = [],
   children,
   pie,
   ancho = 'md',
   className = '',
+  rol = 'dialog',
 }) {
   const panelRef = useRef(null);
   const disparadorRef = useRef(null);
@@ -157,6 +170,25 @@ export default function Modal({
   // vez no colisionan en el `aria-labelledby`.
   const idTitulo = useId();
   const idDescripcion = useId();
+
+  /*
+   * `aria-describedby` acepta varios identificadores separados por espacio, y el
+   * orden importa: es el orden en el que el lector leerá las descripciones. Se
+   * empieza por la de la cabecera y se añaden al final las que pase quien use el
+   * modal, de modo que el texto de la propia `descripcion` siga siendo la
+   * primera frase que se oye al abrir.
+   *
+   * Los identificadores se limpian para quitar vacíos y repetidos: uno repetido
+   * hace que el lector anuncie el mismo texto dos veces, que es peor que no
+   * anunciarlo.
+   */
+  const descritosPor = [
+    ...(descripcion ? [idDescripcion] : []),
+    ...descripcionAdicional,
+  ]
+    .filter((id) => typeof id === 'string' && id.trim() !== '')
+    .filter((id, i, todos) => todos.indexOf(id) === i)
+    .join(' ');
 
   const manejarEscape = useCallback((evento) => {
     if (evento.key === 'Escape') {
@@ -290,10 +322,10 @@ export default function Modal({
 
       <div
         ref={panelRef}
-        role="dialog"
+        role={rol}
         aria-modal="true"
         aria-labelledby={idTitulo}
-        aria-describedby={descripcion ? idDescripcion : undefined}
+        aria-describedby={descritosPor === '' ? undefined : descritosPor}
         tabIndex={-1}
         className={[
           'relative flex w-full flex-col overflow-hidden outline-none',

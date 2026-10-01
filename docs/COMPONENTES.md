@@ -142,7 +142,8 @@ Armazón de la aplicación. Elige sidebar (≥1024px) o header+bottom nav con `u
 - `Inicio`: banner con foto, saludo, frase del día, contador de recuerdos, "El más próximo" y próximos eventos. Usa `useEventos()`.
 - `Calendario`: mes completo. Cuadrícula del mes, navegación, leyenda de categorías y próximos eventos. Guarda el mes en `?mes=AAAA-MM`. Abre `EventoFormModal` en alta con la fecha del día preseleccionada. En escritorio la lista del día vive en un `aside` sticky a la derecha, para que se vea sin tener que desplazarse; en móvil va debajo de la cuadrícula.
 - `EventoDetalle`: ficha de un evento con foto, categoría, fecha, hora, lugar, descripción y enlace a la galería. Abre la edición y el borrado con confirmación, y vuelve a `?mes=` al terminar. Un id mal formado y un id inexistente dan la misma pantalla de "no encontrado", y en ninguno de los dos casos se muestra el id.
-- `Planeador`, `Momentos`, `Galeria`, `Configuracion`: marcadores de posición.
+- `Planeador`: lista de ideas de cita con alta, edición, borrado, favoritas y conversión a evento. Los filtros de categoría y de favoritas viven en la URL (`?categoria=…`, `?favoritas=1`), no en estado local, para que el filtro se pueda compartir y el botón "atrás" del navegador funcione. Ver "Componentes de citas" más abajo.
+- `Momentos`, `Galeria`, `Configuracion`: marcadores de posición.
 - `Bienvenida`: fuera del layout, con el botón "Comenzar" (login simulado).
 
 ## Componentes de calendario (`src/components/calendar/`)
@@ -225,6 +226,7 @@ Un único formulario para alta y edición, envuelto en `Modal`.
 | `onGuardar` | `(datos) => Promise<unknown>` | Sí | — | El padre guarda y cierra. |
 | `evento` | `Evento \| null` | No | `null` | Si viene, es edición. |
 | `fechaInicial` | `string` | No | — | Fecha a precargar en alta (`YYYY-MM-DD`). |
+| `valoresIniciales` | `object` | No | `null` | Campos ya rellenos al abrir. Se usa al convertir una idea en evento, y la `fecha` llega vacía a propósito: la idea no tiene día y poner el de hoy sería inventarlo. Una fecha vacía no se sustituye por la de hoy, porque `fechaInicial` solo se aplica cuando no hay nada escrito. |
 | `guardando` | `boolean` | No | `false` | Bloquea el envío y el botón. |
 
 Cuatro decisiones que no son obvias:
@@ -245,6 +247,42 @@ Cuatro decisiones que no son obvias:
 
 El foco va al primer campo al abrir, y a un error de campo o al aviso general al
 enviar con datos inválidos.
+
+---
+
+## Componentes de citas (`src/components/citas/`)
+
+### `ImagenIdea`
+Foto de la tarjeta, con degradado de reserva cuando no hay imagen. El degradado se aplica en el contenedor, no sobre la foto: si la imagen carga, el color queda detrás y no se ve el hueco mientras descarga.
+
+### `TarjetaIdea`
+Una idea en la lista.
+
+| Prop | Tipo | Obligatoria | Por defecto | Descripción |
+|---|---|---|---|---|
+| `idea` | `IdeaCita` | Sí | — | La idea a pintar. |
+| `editable` | `boolean` | No | `false` | Si es `true`, muestra editar y borrar. La página lo decide con `esIdeaEditable`, no la tarjeta, para que el componente no conozca `ORIGEN`. |
+| `alEditar` | `(idea) => void` | No | — | Pide la edición. |
+| `alBorrar` | `(idea) => void` | No | — | Pide el borrado; no borra, la página confirma. |
+| `alAlternarFavorita` | `(idea) => void` | Sí | — | Marca o desmarca. |
+
+Las ideas del seed no llevan botones de editar ni de borrar: se reconocen por `origen`, y no por su texto ni sus ids, que cambian con el seed.
+
+### `FiltrosIdeas`
+Chips de categoría y el interruptor de favoritas. **No guarda estado**: recibe los valores y llama a los callbacks, y quien lo usa es `Planeador`, que los refleja en la URL.
+
+### `IdeaFormModal`
+Alta y edición de ideas. Mismo enfoque que `EventoFormModal`: un solo componente, validación por campo con `validarIdea`, foco al primer error, aviso al cerrar con cambios sin guardar y `SelectorFoto` reutilizado.
+
+| Prop | Tipo | Obligatoria | Por defecto | Descripción |
+|---|---|---|---|---|
+| `abierto` | `boolean` | Sí | — | Visible desde el padre. |
+| `onCerrar` | `() => void` | Sí | — | Se llama al confirmar el cierre. |
+| `onGuardar` | `(datos) => Promise<unknown>` | Sí | — | El padre guarda y cierra. |
+| `idea` | `IdeaCita \| null` | No | `null` | Si viene, es edición. |
+| `guardando` | `boolean` | No | `false` | Bloquea el envío y el botón. |
+
+Un detalle de accesibilidad: **los errores de campo no llevan `role="alert"`**. Se anuncian con `aria-invalid` y `aria-describedby`, que es lo que ata el mensaje a su control. Un `role="alert"` por cada tecla escrita sería contraproducente, porque el lector lo leería en voz alta mientras se corrige.
 
 ---
 
@@ -311,7 +349,9 @@ del aviso de liberar espacio que sí lo dice. Cualquier otro fallo sí se envuel
 para que la interfaz tenga un único tipo de error con el que trabajar.
 
 ### `storage.js`
-Abstracción sobre `localStorage` con claves versionadas `juntos:v2:{coleccion}` (v2 desde la normalización de categorías). Exporta `VERSION_DATOS`, `COLECCIONES`, `claveDe`, `leer`, `guardar`, `borrar`, `resetDatos`, `limpiarVersionesAnteriores`, `listarClaves`, `tamanoAproximado`, `storageDisponible`, `esCuotaAgotada`, y la clase `ErrorCuotaAlmacenamiento`.
+Abstracción sobre `localStorage` con claves versionadas `juntos:v3:{coleccion}`. Exporta `VERSION_DATOS`, `VERSION_SESION`, `COLECCIONES`, `claveDe`, `claveDeSesion`, `leer`, `guardar`, `borrar`, `resetDatos`, `limpiarVersionesAnteriores`, `listarClaves`, `tamanoAproximado`, `storageDisponible`, `esCuotaAgotada`, y la clase `ErrorCuotaAlmacenamiento`.
+
+**Dos versiones, no una.** `VERSION_DATOS` (3) versiona la forma de los modelos; `VERSION_SESION` (1) versiona la sesión, y no sigue a la anterior. Si compartieran número, subir la versión de los datos cerraría la sesión de todo el mundo sin motivo, porque la sesión es el único dato que no se puede regenerar: el seed se vuelve a sembrar solo, una sesión no. `claveDeSesion()` no pasa por `claveDe()` a propósito, para que el desacople sea explícito y no dependa de que quien llame se acuerde. `limpiarVersionesAnteriores()` conserva siempre su clave. Ver `docs/SEGURIDAD.md`.
 
 `leer()` devuelve `null` — no lanza — cuando no hay datos, cuando el JSON está
 corrupto o cuando el almacén no está disponible. La respuesta a los tres casos es

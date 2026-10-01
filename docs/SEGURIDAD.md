@@ -176,6 +176,25 @@ Para datos de ejemplo está bien. Para recuerdos reales de una pareja **no**.
 
 `PERFIL_PAREJA` ("Tú y Yo", "12 abr 2024") es una constante en `src/constants/nav.js`, editable por cualquiera desde el código.
 
+### La sesión tendrá su propia versión, no la de los datos
+
+En `src/services/storage.js` hay **dos** números de versión, y no deben unificarse:
+
+| Constante | Versiona | Al subirla |
+|---|---|---|
+| `VERSION_DATOS` (3) | La forma de `Evento` e `IdeaCita` | La app deja de leer `juntos:v2:*` y vuelve a sembrar |
+| `VERSION_SESION` (1) | Lo que guarde la sesión, cuando exista | Nada: la sesión se conserva |
+
+El motivo es de seguridad y de respeto a quien está usando la app. La sesión es el único dato que **no se puede regenerar**: el seed de eventos se vuelve a sembrar solo tras un cambio de esquema, pero una sesión no. Si compartieran número de versión, añadir el campo `origen` a las ideas cerraría la sesión de todas las parejas que tuvieran la app abierta, sin que nadie hubiera hecho nada que lo justificara.
+
+Consecuencias asumidas en el código:
+
+- `claveDeSesion()` no delega en `claveDe()`, para que el desacople sea explícito y no dependa de acordarse de pasar la versión correcta.
+- `limpiarVersionesAnteriores()` **conserva siempre** la clave de sesión. Es la única que no se puede recuperar si se borra.
+- La constante ya existe aunque la sesión todavía no se escriba, para que al implementarla en el paso g la clave salga bien sin tener que revisar nada.
+
+**En Fase 2 desaparece y no se sustituye:** la sesión pasa a vivir en la cookie de Supabase Auth, en el servidor, fuera del alcance del navegador. Ahí el versioning del cliente no aplica. Lo que sí se conserva es el criterio: la sesión nunca se invalida por un cambio en la forma de los datos.
+
 ### Los datos no están autorizados por pareja
 
 Hoy hay un único conjunto de eventos para "la pareja". En Fase 2, cuando dos personas distintas usen la cuenta, alguien podría leer o modificar datos de la otra. Hoy no es un problema (no hay dos usuarios); en Fase 2 sí lo es, y se resuelve con RLS en Supabase.

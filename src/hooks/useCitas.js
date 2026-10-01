@@ -1,52 +1,45 @@
 /**
  * Hook `useCitas`.
  *
- * RESPONSABILIDAD: dar a las páginas las ideas de cita y las operaciones
- * sobre ellas, con estado de carga, error y filtro. Mismo patrón de estado
- * local que `useEventos`: las mutaciones actualizan la lista sin volver a
- * leer del almacenamiento.
+ * RESPONSABILIDAD: dar a la página del planeador las ideas de cita y las
+ * operaciones sobre ellas, con estado de carga, error y guardado. Mismo patrón
+ * de estado local que `useEventos`: las mutaciones actualizan la lista sin
+ * volver a leer del almacenamiento.
  *
- * El filtro por categoría vive en el hook y no en la página, porque es
- * lógica de presentación compartida entre el planeador y, más adelante, el
- * botón de "convertir en evento".
+ * LOS FILTROS VIENEN DE FUERA A PROPÓSITO
+ * `categoria` y `soloFavoritas` son parámetros, no estado interno. La URL es la
+ * única fuente de verdad: quien recibe un enlace con `?categoria=relax` ve esa
+ * vista, el botón "Atrás" deshace un cambio de filtro y recargar mantiene lo que
+ * se estaba viendo. Si el filtro viviera aquí dentro, la URL y la lista
+ * empezarían a discrepar en cuanto alguien pulsara atrás.
  *
- * @see src/services/citasService.js
+ * Related: src/services/citasService.js, src/utils/planeador.js,
+ * src/pages/Planeador.jsx
  *
  * @module hooks/useCitas
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  crearIdea,
-  eliminarIdea,
-  getIdeasCitas,
-  resetCitas,
-  toggleFavorita,
-  actualizarIdea,
-} from '../services/citasService';
-import { ORDEN_CATEGORIAS_IDEA } from '../utils/categorias';
-
-/** Valor del filtro que significa "sin filtro". */
-export const FILTRO_TODAS = 'todas';
+import { crearIdea, eliminarIdea, getIdeasCitas, resetCitas, toggleFavorita, actualizarIdea } from '../services/citasService';
+import { FILTRO_TODAS, filtrarIdeas, ordenarIdeas } from '../utils/planeador';
 
 /**
  * @typedef {object} EstadoCitas
- * @property {import('../types/models.js').IdeaCita[]} ideas Ideas sin filtrar.
+ * @property {import('../types/models.js').IdeaCita[]} ideas Ideas sin filtrar,
+ *   ya ordenadas.
  * @property {import('../types/models.js').IdeaCita[]} ideasFiltradas Ideas
- *   según el filtro activo.
+ *   según los filtros activos.
  * @property {import('../types/models.js').IdeaCita[]} favoritas Solo las
  *   marcadas con el corazón.
- * @property {import('../types/models.js').CategoriaIdeaCita|FiltroTodas} filtro
- *   Categoría activa.
- * @property {(c: import('../types/models.js').CategoriaIdeaCita|FiltroTodas) => void}
- *   setFiltro Cambia el filtro.
+ * @property {boolean} hayFiltros `true` si algún filtro está activo.
  * @property {boolean} cargando `true` mientras se lee el almacenamiento.
  * @property {boolean} guardando `true` mientras hay una escritura en curso.
  * @property {string|null} error Mensaje de error listo para mostrar.
  * @property {(datos: object) => Promise<import('../types/models.js').IdeaCita|null>}
  *   crear Crea una idea.
- * @property {(id: string) => Promise<import('../types/models.js').IdeaCita|null>}
- *   alternarFavorita Alterna el corazón de una idea.
+ * @property {(id: string) => Promise<boolean>} alternarFavorita Alterna el
+ *   corazón. Devuelve `false` si el cambio no se pudo guardar, en cuyo caso la
+ *   lista ya ha vuelto a su estado anterior.
  * @property {(id: string, datos: object) => Promise<import('../types/models.js').IdeaCita|null>}
  *   actualizar Modifica una idea.
  * @property {(id: string) => Promise<boolean>} eliminar Borra una idea.
@@ -55,23 +48,25 @@ export const FILTRO_TODAS = 'todas';
  */
 
 /**
- * @typedef {'todas'} FiltroTodas
+ * @typedef {object} OpcionesCitas
+ * @property {string} [categoria] Categoría activa, o {@link FILTRO_TODAS}.
+ * @property {boolean} [soloFavoritas] Si solo se muestran las favoritas.
  */
 
 /**
- * Gestiona las ideas de cita y el filtro activo.
+ * Gestiona las ideas de cita y los filtros que las recortan.
  *
+ * @param {OpcionesCitas} [opciones] Filtros activos, que la página lee de la URL.
  * @returns {EstadoCitas} Estado y operaciones de ideas de cita.
  * @example
- * const { ideasFiltradas, setFiltro, alternarFavorita } = useCitas();
- * <Filtros valor={filtro} onChange={setFiltro} />
+ * const { ideasFiltradas, alternarFavorita } = useCitas({ categoria: 'relax' });
+ * <FiltrosIdeas valor={categoria} onChange={setCategoria} />
  */
-export function useCitas() {
+export function useCitas({ categoria = FILTRO_TODAS, soloFavoritas = false } = {}) {
   const [ideas, setIdeas] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState(null);
-  const [filtro, setFiltro] = useState(FILTRO_TODAS);
 
   /**
    * Lee las ideas del service.
@@ -93,9 +88,9 @@ export function useCitas() {
       if (!sigueVivo()) return;
 
       setIdeas(datos);
-      // Se limpia el error tras una lectura correcta, no antes: hacerlo al
-      // inicio sería un setState síncrono dentro del efecto, que provoca un
-      // render en cascada innecesario. Ver la nota equivalente en useEventos.
+      // El error se limpia tras una lectura correcta, no antes: hacerlo al
+      // principio sería un setState síncrono dentro del efecto y provocaría un
+      // render en cascada. Ver la nota equivalente en `useEventos`.
       setError(null);
     } catch (err) {
       if (!sigueVivo()) return;
@@ -129,7 +124,12 @@ export function useCitas() {
     };
   }, [cargar]);
 
-  /** Envuelve una escritura y captura el error en el estado. */
+  /**
+   * Envuelve una escritura y captura el error en el estado.
+   *
+   * @param {() => Promise<any>} operacion Escritura a ejecutar.
+   * @returns {Promise<any>} Lo que devuelva la operación, o `null` si falló.
+   */
   const ejecutarEscritura = useCallback(async (operacion) => {
     setGuardando(true);
     setError(null);
@@ -147,63 +147,105 @@ export function useCitas() {
   /**
    * Crea una idea y la añade a la lista local.
    *
-   * @param {Partial<import('../types/models.js').IdeaCita>} datos Datos de la idea.
-   * @returns {Promise<import('../types/models.js').IdeaCita|null>} La idea creada.
+   * @param {object} datos Datos de la idea, ya validados por el formulario.
+   * @returns {Promise<import('../types/models.js').IdeaCita|null>} La idea creada,
+   *   o `null` si falló.
    * @example
-   * await crear({ titulo: 'Cocinar algo nuevo', categoria: 'en casa' });
+   * await crear({ titulo: 'Cocinar algo nuevo', categoria: 'en-casa' });
    */
   const crear = useCallback(
     (datos) =>
       ejecutarEscritura(async () => {
         const idea = await crearIdea(datos);
-        setIdeas((actuales) =>
-          ordenar([...actuales, idea]),
-        );
+        setIdeas((actuales) => ordenarIdeas([...actuales, idea]));
         return idea;
       }),
     [ejecutarEscritura],
   );
 
   /**
-   * Alterna el corazón de favorita.
+   * Alterna el corazón de una idea, con actualización optimista.
+   *
+   * LA LISTA CAMBIA ANTES DE ESCRIBIR. Marcar un favorito es la acción más
+   * frecuente del planeador y cada escritura pasa por `localStorage`, que es
+   * síncrono pero puede tardar en un móvil con almacenamiento lleno. Si la
+   * lista esperase, el corazón tardaría en moverse y parecería que no funciona.
+   *
+   * Y SI LA ESCRITURA FALLA, SE VUELVE ATRÁS. Se guarda la idea tal como
+   * estaba antes del pulso y se restaura. Sin ese paso, la pantalla mentiría: se
+   * vería un corazón marcado que al recargar desaparecería, y nadie sabría si
+   * se había guardado. El mensaje de error lo pone la página, que es quien
+   * decide cómo se avisa; aquí solo se devuelve `false`.
+   *
+   * La lista se reordena con el cambio optimista, porque las favoritas se
+   * muestran arriba: si no, la tarjeta saltaría de sitio de forma más
+   * desconcertante que la propia espera.
    *
    * @param {string} id Identificador de la idea.
-   * @returns {Promise<import('../types/models.js').IdeaCita|null>} La idea con
-   *   el nuevo estado, o `null` si falló.
+   * @returns {Promise<boolean>} `true` si se guardó el cambio, `false` si hubo
+   *   que revertirlo.
    * @example
-   * await alternarFavorita(id);
+   * const ok = await alternarFavorita(id);
+   * if (!ok) avisar('No se pudo guardar el favorito.');
    */
   const alternarFavorita = useCallback(
     (id) =>
       ejecutarEscritura(async () => {
-        const idea = await toggleFavorita(id);
-        if (idea) {
-          // Reordenamos porque las favoritas se muestran arriba.
+        const anterior = ideas.find((otra) => otra.id === id);
+        if (!anterior) return false;
+
+        setIdeas((actuales) =>
+          ordenarIdeas(
+            actuales.map((otra) =>
+              otra.id === id ? { ...otra, favorita: otra.favorita !== true } : otra,
+            ),
+          ),
+        );
+
+        try {
+          const guardada = await toggleFavorita(id);
+          if (!guardada) {
+            setIdeas((actuales) =>
+              ordenarIdeas(actuales.map((otra) => (otra.id === id ? anterior : otra))),
+            );
+            return false;
+          }
+          // Se sustituye por lo que devuelva el service, no por lo que se
+          // suponía: si el almacenamiento normaliza algo, la lista refleja la
+          // realidad y no una intención.
           setIdeas((actuales) =>
-            ordenar(actuales.map((otra) => (otra.id === id ? idea : otra))),
+            ordenarIdeas(actuales.map((otra) => (otra.id === id ? guardada : otra))),
           );
+          return true;
+        } catch (err) {
+          setIdeas((actuales) =>
+            ordenarIdeas(actuales.map((otra) => (otra.id === id ? anterior : otra))),
+          );
+          throw err;
         }
-        return idea;
       }),
-    [ejecutarEscritura],
+    [ejecutarEscritura, ideas],
   );
 
   /**
    * Actualiza una idea.
    *
    * @param {string} id Identificador de la idea.
-   * @param {Partial<import('../types/models.js').IdeaCita>} datos Campos a cambiar.
-   * @returns {Promise<import('../types/models.js').IdeaCita|null>} La idea actualizada.
+   * @param {object} datos Campos a cambiar, ya validados por el formulario.
+   * @returns {Promise<import('../types/models.js').IdeaCita|null>} La idea
+   *   actualizada, o `null` si falló.
    * @example
-   * await actualizar(id, { favorita: false });
+   * await actualizar(id, { titulo: 'Picnic corto' });
    */
   const actualizar = useCallback(
     (id, datos) =>
       ejecutarEscritura(async () => {
         const idea = await actualizarIdea(id, datos);
-        setIdeas((actuales) =>
-          ordenar(actuales.map((otra) => (otra.id === id ? idea : otra))),
-        );
+        if (idea) {
+          setIdeas((actuales) =>
+            ordenarIdeas(actuales.map((otra) => (otra.id === id ? idea : otra))),
+          );
+        }
         return idea;
       }),
     [ejecutarEscritura],
@@ -224,7 +266,7 @@ export function useCitas() {
         if (ok) {
           setIdeas((actuales) => actuales.filter((otra) => otra.id !== id));
         }
-        return ok;
+        return ok === true;
       }),
     [ejecutarEscritura],
   );
@@ -234,7 +276,11 @@ export function useCitas() {
     await cargar();
   }, [cargar]);
 
-  /** Borra todo y vuelve a sembrar el seed. */
+  /**
+   * Borra todo y vuelve a sembrar el seed.
+   *
+   * @returns {Promise<void>} Termina cuando el restablecimiento acaba.
+   */
   const restablecer = useCallback(
     () =>
       ejecutarEscritura(async () => {
@@ -245,31 +291,23 @@ export function useCitas() {
     [ejecutarEscritura],
   );
 
-  /** Ideas según el filtro activo. */
-  const ideasFiltradas = useMemo(() => {
-    if (filtro === FILTRO_TODAS) return ideas;
-    return ideas.filter((idea) => idea.categoria === filtro);
-  }, [ideas, filtro]);
-
-  /** Solo las favoritas, para la sección destacada del planeador. */
-  const favoritas = useMemo(
-    () => ideas.filter((idea) => idea.favorita),
-    [ideas],
+  /** Ideas según los filtros activos, sin reordenar. */
+  const ideasFiltradas = useMemo(
+    () => filtrarIdeas(ideas, { categoria, soloFavoritas }),
+    [ideas, categoria, soloFavoritas],
   );
 
-  /** Opciones de filtro, empezando por "Todas". */
-  const opcionesFiltro = useMemo(
-    () => [FILTRO_TODAS, ...ORDEN_CATEGORIAS_IDEA],
-    [],
-  );
+  /** Solo las favoritas, para el contador del interruptor. */
+  const favoritas = useMemo(() => ideas.filter((idea) => idea.favorita), [ideas]);
+
+  /** `true` si hay algún filtro que pueda quitarse con un clic. */
+  const hayFiltros = categoria !== FILTRO_TODAS || soloFavoritas === true;
 
   return {
     ideas,
     ideasFiltradas,
     favoritas,
-    filtro,
-    setFiltro,
-    opcionesFiltro,
+    hayFiltros,
     cargando,
     guardando,
     error,
@@ -280,24 +318,4 @@ export function useCitas() {
     recargar,
     restablecer,
   };
-}
-
-/**
- * Ordena las ideas: favoritas primero, luego por título en español.
- *
- * Réplica local de la ordenación del service. Se necesita también en el
- * cliente para que la lista no salte de posición al alternar un corazón, ya
- * que el service solo ordena al escribir.
- *
- * @param {Array<import('../types/models.js').IdeaCita>} ideas Ideas a ordenar.
- * @returns {Array<import('../types/models.js').IdeaCita>} Nuevo array ordenado.
- * @example
- * ordenar([{titulo:'B',favorita:false},{titulo:'A',favorita:true}]);
- * // → [{titulo:'A',favorita:true},{titulo:'B',favorita:false}]
- */
-function ordenar(ideas) {
-  return [...ideas].sort((a, b) => {
-    if (a.favorita !== b.favorita) return a.favorita ? -1 : 1;
-    return String(a.titulo).localeCompare(String(b.titulo), 'es');
-  });
 }

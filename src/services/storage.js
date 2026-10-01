@@ -50,9 +50,44 @@
  * `en casa`, con un espacio, que no sobrevive a un filtro ni a una URL. Con
  * v1 guardado, esas ideas serían inválidas al editarlas.
  *
+ * v3: `IdeaCita` tiene el campo `origen`, que distingue las ideas del seed de
+ * las que crea la pareja. Sin él no hay forma de saber si una idea se puede
+ * editar o borrar, y la única manera sería reconocerlas por sus ids o por su
+ * contenido, que se rompe en cuanto cambia el seed. Se sube la versión porque
+ * las ideas ya guardadas no tienen el campo: tratar las de v2 como "usuario"
+ * sería una interpretación, y preferimos que el seed se vuelva a sembrar y
+ * quede un dato que sí dice la verdad. Las ideas creadas por la pareja se
+ * pierden al subir; en un prototipo de fase 1 es un coste aceptable, y en fase
+ * 2 no aplica porque allí cada idea es una fila con su propio registro.
+ *
  * @type {number}
  */
-export const VERSION_DATOS = 2;
+export const VERSION_DATOS = 3;
+
+/**
+ * Versión del esquema de la sesión, separada a propósito de
+ * {@link VERSION_DATOS}.
+ *
+ * Son dos cosas distintas y no deben compartir número. `VERSION_DATOS` sube
+ * cuando cambia la FORMA de un modelo: al subirla, las claves antiguas dejan de
+ * leerse y la app vuelve a sembrar. Ese coste es aceptable para datos de
+ * ejemplo, y no lo es para la sesión: cerrar la sesión de todo el mundo porque
+ * se añadió el campo `origen` a las ideas no tiene ningún sentido. Quien
+ * estuviera usando la app se encontraría sin sesión y tendría que empezar de
+ * cero, sin haber hecho nada que lo justifique.
+ *
+ * Por eso la sesión lleva su propio número, que solo se mueve cuando cambie lo
+ * que la sesión guarda o su forma, no cuando cambien los datos que hay al
+ *rededor.
+ *
+ * En esta fase no se guarda ninguna sesión: `Bienvenida` navega sin más y no
+ * escribe nada. La constante existe ya para que, cuando se implemente en el
+ * paso g, la clave sea `juntos:v1:sesion` y no herede la versión de los datos
+ * por accidente. Ver docs/SEGURIDAD.md.
+ *
+ * @type {number}
+ */
+export const VERSION_SESION = 1;
 
 /**
  * Prefijo de todas las claves, espacio de nombres de la app.
@@ -80,6 +115,22 @@ export const COLECCIONES = Object.freeze({
  */
 export function claveDe(coleccion, version = VERSION_DATOS) {
   return `${PREFIJO}:v${version}:${coleccion}`;
+}
+
+/**
+ * Construye la clave de la sesión, con su propia versión.
+ *
+ * No reutiliza {@link claveDe} a propósito: la sesión no es una colección de
+ * datos y no debe arrastrar la versión del esquema. Pasarla por aquí deja
+ * explícito el desacople, en vez de confiar en que quien llame se acuerde de
+ * pasar la versión buena.
+ *
+ * @returns {string} Clave de la sesión, por ejemplo `juntos:v1:sesion`.
+ * @example
+ * claveDeSesion(); // 'juntos:v1:sesion'
+ */
+export function claveDeSesion(version = VERSION_SESION) {
+  return `${PREFIJO}:v${version}:sesion`;
 }
 
 /**
@@ -313,10 +364,16 @@ export function limpiarVersionesAnteriores() {
       const clave = window.localStorage.key(i);
       if (!clave || !clave.startsWith(`${PREFIJO}:`)) continue;
 
-      // Se conservan solo las claves de la versión actual.
+      /*
+       * Se conservan las claves de la versión actual. La sesión se conserva
+       * siempre y con su propia versión: es el único dato que no se puede
+       * regenerar, y borrarla aquí dejaría a cualquiera sin sesión por haber
+       * subido la versión de los datos.
+       */
       const esVersionActual =
         clave === claveDe(COLECCIONES.EVENTOS) ||
         clave === claveDe(COLECCIONES.CITAS) ||
+        clave === claveDeSesion() ||
         clave.startsWith(`${PREFIJO}:test`);
 
       if (!esVersionActual) clavesViejas.push(clave);

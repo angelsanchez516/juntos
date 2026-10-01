@@ -1161,6 +1161,51 @@ await appTres.desmontar();
 comprobar('cerrar el primero sí restaura', document.body.style.overflow === 'scroll', document.body.style.overflow);
 document.body.style.overflow = '';
 
+console.log('\n== Modal: el rol y la descripción ==');
+// `rol` y `descripcionAdicional` los usa el `alertdialog` de borrar, pero
+// conviene comprobar aquí que el componente no los mezcla ni los pierde.
+const appRol = await montar(
+  ReactCjs.createElement(Modal, {
+    abierto: true,
+    onCerrar: () => {},
+    titulo: 'Título',
+    descripcion: 'Descripción de la cabecera',
+    descripcionAdicional: ['nota-del-cuerpo', '', 'nota-del-cuerpo'],
+    rol: 'alertdialog',
+  }, ReactCjs.createElement('p', { id: 'nota-del-cuerpo' }, 'Cuerpo del diálogo')),
+);
+const panelRol = document.querySelector('[role="alertdialog"]');
+comprobar('el modal acepta el rol que le piden', panelRol !== null);
+// Se pasan un identificador vacío y uno repetido a propósito: `Modal` los tiene
+// que limpiar, o el lector anunciaría el cuerpo dos veces.
+const descritoRol = (panelRol?.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean);
+comprobar('el rol no se pierde al montar', panelRol !== null && document.querySelector('[role="dialog"]') === null);
+comprobar('la descripción extra se suma a la de la cabecera', descritoRol.length === 2, descritoRol.join(' '));
+comprobar('los identificadores repetidos se limpian', new Set(descritoRol).size === descritoRol.length, descritoRol.join(' '));
+comprobar('los identificadores vacíos se limpian', !descritoRol.includes(''), descritoRol.join(' '));
+comprobar('cada identificador apunta a un nodo real', descritoRol.every((id) => document.getElementById(id) !== null), descritoRol.join(' '));
+comprobar('la cabecera se lee antes que el cuerpo', descritoRol[0] !== 'nota-del-cuerpo' && document.getElementById(descritoRol[0])?.textContent === 'Descripción de la cabecera', descritoRol.join(' '));
+await appRol.desmontar();
+
+const appNormal = await montar(
+  ReactCjs.createElement(Modal, { abierto: true, onCerrar: () => {}, titulo: 'Normal' }),
+);
+comprobar('por defecto el rol es dialog', document.querySelector('[role="dialog"]') !== null && document.querySelector('[role="alertdialog"]') === null);
+comprobar('sin descripcion el aria-describedby no aparece', document.querySelector('[role="dialog"]').getAttribute('aria-describedby') === null, String(document.querySelector('[role="dialog"]').getAttribute('aria-describedby')));
+await appNormal.desmontar();
+
+const appDescr = await montar(
+  ReactCjs.createElement(Modal, {
+    abierto: true,
+    onCerrar: () => {},
+    titulo: 'Con descripción',
+    descripcion: 'Solo la cabecera',
+  }, ReactCjs.createElement('p', { id: 'extra' }, 'Y el cuerpo')),
+);
+const descrito = document.querySelector('[role="dialog"]').getAttribute('aria-describedby') ?? '';
+comprobar('con descripcion se apunta a su párrafo', descrito.split(' ').length === 1 && document.getElementById(descrito.trim())?.textContent === 'Solo la cabecera', descrito);
+await appDescr.desmontar();
+
 console.log('\n== Catálogo: los nombres heredados no son categorías ==');
 // `CATEGORIAS_EVENTO` es un objeto literal, así que hereda de
 // `Object.prototype`. Un acceso directo devolvería la función heredada en

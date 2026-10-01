@@ -38,11 +38,12 @@ Todas las novedades de esta fase. Las secciones se rellenan **al terminar cada p
 Las ideas ya guardadas en v2 **no tienen `origen`** y no se pueden distinguir de las de la pareja. Rellenarlas como `usuario` sería inventarse un dato, y como `seed` dejaría ideas propias sin poder editar. La app prefiere perder esas ideas de prueba y volver a sembrar, de forma que lo que queda sí dice la verdad. Es un coste aceptable en un prototipo de datos de ejemplo; en Fase 2 no aplica, porque allí cada idea es una fila y no hay seed mezclado. Ver `docs/MIGRACION_SUPABASE.md`.
 
 ### Verificación
-- `npm test`: 634 comprobaciones, 0 fallos, estable en 3 pasadas seguidas.
+- `npm test`: 644 comprobaciones, 0 fallos, estable en 3 pasadas seguidas.
 - `npm run lint`: 0 avisos y 0 errores.
 - `npm run build`: correcto.
 - Codificación revisada en los 63 ficheros del proyecto, incluidos los `.md` tocados.
-- **Las expectativas se comprobaron contra el código, no contra sí mismas:** se invirtió a propósito el conteo de una comprobación de borrado y la suite la detectó (`634 pruebas, 1 fallos`) en lugar de darla por buena. Después se restauró.
+- **Las expectativas se comprobaron contra el código, no contra sí mismas:** se invirtió a propósito el conteo de una comprobación de borrado y la suite la detectó (`1 FALLOS`) en lugar de darla por buena. Después se restauró.
+- **`Modal` se comprueba aparte del planeador:** que el rol por defecto siga siendo `dialog`, que `aria-describedby` no aparezca sin descripción, y que los identificadores repetidos o vacíos de `descripcionAdicional` se limpien.
 - Pendiente de comprobación manual, por necesitar un dispositivo real: orientación EXIF con una foto vertical, stripping de GPS, el botón "Guardar" con el teclado abierto a ~375 px, y contraste y fidelidad visual.
 
 ---

@@ -4,6 +4,44 @@ Todas las novedades de esta fase. Las secciones se rellenan **al terminar cada p
 
 ---
 
+## Paso f — Galería
+
+### Añadido
+- **Página `Galeria` real**, antes un marcador de posición. Mosaico de fotos agrupado por mes, con recuento y salida al planeador.
+- **`src/utils/galeria.js`**: derivación pura de la galería a partir de los eventos. `extraerFotos`, `agruparFotosPorMes`, `aniosConFotos`, `filtrarPorAnio`, `anioValido` y `textoRecuento`.
+- **Componentes nuevos** en `src/components/galeria/`: `MosaicoGaleria` y `FotoGaleria`.
+- **Filtro de año en la URL** (`?anio=AAAA`), con enlace "Todos". Solo aparece si hay fotos de más de un año: un selector de una sola opción solo añade un clic para acabar en la misma galería.
+- **`?evento=<id>`**: el enlace "Ver en la galería" del detalle ya escribía este parámetro y la galería lo entendía. Resalta esa foto con `aria-current`, y el enlace lleva título y fecha para que dos fotos del mismo mes suenen distintas al recorrerla.
+- **Cuatro estados distintos**: cargando, error con botón "Reintentar", vacío con salida al planeador, y mosaico. Se distinguen a propósito porque confundirlos deja una pantalla en blanco que parece un fallo.
+
+### Cambiado
+- **`degradadoCategoria` sale de `planeador.js` a `categorias.js`**, y se parte en `degradadoCategoriaEvento` y `degradadoCategoriaIdea`. La galería necesita el de los eventos y mantener los dos habría sido la misma interpolación escrita en dos sitios, con el riesgo de que cambiaran por separado. `ImagenIdea` usa ahora la del catálogo.
+- **`Galeria` en la lista de páginas reales** de `docs/COMPONENTES.md`, con sus props y sus decisiones.
+
+### Decisiones
+- **La galería no guarda fotos propias.** Sus fotos son `Evento.foto`, derivadas de `useEventos()`. No hay tabla, clave ni service nuevos, y no existe el estado en el que una foto y su recuerdo se desincronicen. Si en Supabase las fotos pasan a ser una tabla aparte, esto deja de ser derivable; está anotado en `docs/MIGRACION_SUPABASE.md`.
+- **El orden no se hereda del calendario.** El calendario pone lo próximo arriba y la galería lo último que pasó primero, porque se recorre como un álbum. `extraerFotos` lo hace explícito en vez de reutilizar `eventosOrdenados`, que sería correcto por casualidad. A igualdad de día manda la hora, y el evento sin hora va al final porque ocupa el día entero.
+- **`agruparPorMes` se reutiliza desde `fechas.js`** en vez de reimplementar el agrupado, para que el encabezado del mes se escriba en un solo sitio y la galería no pueda desincronizarse de la línea de tiempo.
+- **`anioValido()` normaliza al leer la URL, no al escribirla.** Un `?anio=20` se trata como "sin filtro" en lugar de dejar el mosaico vacío sin explicación, que es la peor forma de fallar.
+
+### Correcciones
+- **La imagen del mosaico es decorativa** (`alt=""`), porque el enlace ya lleva el título y la fecha en su `aria-label`. Con las dos, un lector de pantalla lo repetiría dos veces.
+- **Debajo de cada foto hay un degradado de la categoría** y la imagen se apaga con `onError` si no carga. Las fotos del seed son URLs remotas y sin conexión habría huecos rotos y los iconos del navegador.
+- **La rejilla lleva `role="list"` explícito** en el `ul`, porque Safari deja de anunciar los roles de lista cuando el contenedor es un `div` con `display: grid`.
+- **Erratas en comentarios, no visibles en pantalla:** `Separate de` en `src/types/models.js`, `quienchoosable` en `src/utils/imagen.js`, y `discovered`/`throwing` en `src/utils/categorias.js`. Se corrigieron al leer el código; ninguna era texto de interfaz.
+- **El arnés gana `disparar(el, tipo)`**: dispara un evento que no viene del ratón ni del teclado, como el `error` de una imagen que no carga. Va dentro de `act` porque provoca un cambio de estado, y sin el envoltorio la comprobación mediría el estado anterior.
+
+### Verificación
+- `npm test`: 722 comprobaciones, 0 fallos, estable en 3 pasadas seguidas.
+- `npm run lint`: 0 avisos y 0 errores.
+- `npm run build`: correcto.
+- Codificación revisada en los 67 ficheros del proyecto, incluidos los `.md` tocados.
+- La derivación se prueba **sin montar nada**, porque es pura: orden descendente entre años, la hora a igualdad de día, el evento sin hora al final, y el descarte de `foto: null`, cadena vacía, falta de `id` y falta de `fecha`.
+- La coherencia entre foto y recuerdo se comprueba borrando un evento: su foto desaparece de la galería y las demás siguen ahí.
+- Pendiente de comprobación manual: el mosaico con fotos reales de la pareja, la fidelidad visual en escritorio y móvil, el comportamiento de la reserva cuando falla la red, y si el filtro de año se relaciona bien con el scroll.
+
+---
+
 ## Paso e — Planeador de citas
 
 ### Añadido

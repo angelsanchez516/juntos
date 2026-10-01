@@ -245,6 +245,28 @@ Consecuencias para la UI:
 - La compresión a 1200 px del paso d sigue siendo recomendable, pero ya no es una necesidad de cuota.
 - Al eliminar un evento hay que eliminar también el objeto del Storage, o quedaran archivos huérfanos. Conviene hacerlo con un trigger o una función.
 
+### Lo que este cambio obliga a revisar en la galería
+
+La galería (paso f) es hoy una **vista** sobre los eventos: sus fotos son
+`Evento.foto` y `src/utils/galeria.js` las deriva de la lista. Eso es lo que le
+permite no tener clave de almacenamiento ni service propios.
+
+Dos cosas se rompen con el cambio a Storage, y conviene decidir cuál se quiere
+antes de escribir código:
+
+1. **Las URLs firmadas caducan.** Si la galería pide la imagen en línea como hoy,
+   una galería abierta durante más de una hora empezará a mostrar el degradado de
+   reserva en las fotos viejas. Con la foto dentro del registro esto no pasa.
+2. **Varias fotos por evento.** Hoy el modelo tiene un solo `foto`. Si en Fase 2
+   un recuerdo admite varias fotos, la galería deja de poder derivarse y necesita
+   su propio service y su propia tabla.
+
+Mientras tanto, la decisión menos costosa es **mantener `foto` en la respuesta de
+`getEventos()`** —es decir, pedir las URLs firmadas en el mismo `select`— para no
+tocar `extraerFotos()`. Si más adelante se admite más de una foto por evento, el
+cambio se acota a `src/utils/galeria.js` y a un service nuevo.
+
+
 ---
 
 ## Autenticación

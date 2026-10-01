@@ -143,8 +143,36 @@ Armazón de la aplicación. Elige sidebar (≥1024px) o header+bottom nav con `u
 - `Calendario`: mes completo. Cuadrícula del mes, navegación, leyenda de categorías y próximos eventos. Guarda el mes en `?mes=AAAA-MM`. Abre `EventoFormModal` en alta con la fecha del día preseleccionada. En escritorio la lista del día vive en un `aside` sticky a la derecha, para que se vea sin tener que desplazarse; en móvil va debajo de la cuadrícula.
 - `EventoDetalle`: ficha de un evento con foto, categoría, fecha, hora, lugar, descripción y enlace a la galería. Abre la edición y el borrado con confirmación, y vuelve a `?mes=` al terminar. Un id mal formado y un id inexistente dan la misma pantalla de "no encontrado", y en ninguno de los dos casos se muestra el id.
 - `Planeador`: lista de ideas de cita con alta, edición, borrado, favoritas y conversión a evento. Los filtros de categoría y de favoritas viven en la URL (`?categoria=…`, `?favoritas=1`), no en estado local, para que el filtro se pueda compartir y el botón "atrás" del navegador funcione. Ver "Componentes de citas" más abajo.
-- `Momentos`, `Galeria`, `Configuracion`: marcadores de posición.
+- `Galeria`: mosaico de las fotos de los eventos, agrupado por mes y con un filtro de año. No guarda fotos propias: deriva de `useEventos()` con `extraerFotos()`, así que al borrar un recuerdo su foto desaparece sin borrar nada más. El año vive en la URL (`?anio=AAAA`) y `?evento=<id>` resalta la foto que se abrió desde el detalle. Con cuatro estados distintos: cargando, error con "Reintentar", vacío con salida al planeador, y mosaico. Ver "Componentes de galería" más abajo.
+- `Momentos`, `Configuracion`: marcadores de posición.
 - `Bienvenida`: fuera del layout, con el botón "Comenzar" (login simulado).
+
+## Componentes de galería (`src/components/galeria/`)
+### `MosaicoGaleria`
+Pinta los grupos de mes ya formados, con un `h2` por mes y un `ul role="list"` de fotos debajo. No sabe de dónde salen las fotos ni decide el orden: recibe los grupos.
+
+| Prop | Tipo | Obligatoria | Por defecto | Descripción |
+|---|---|---|---|---|
+| `fotos` | `FotoGaleria[]` | Sí | — | Grupos de mes, del más reciente al más antiguo. |
+| `eventoResaltado` | `string \| null` | No | `null` | Id del evento abierto desde `?evento=`. |
+
+La rejilla va de 2 columnas en móvil a 4 en escritorio. El `ul` lleva `role="list"` explícito porque Safari deja de anunciar los roles de lista cuando el contenedor es un `div` con `display: grid`.
+
+### `FotoGaleria`
+Una celda del mosaico: la foto, su pie y el enlace a su recuerdo.
+
+| Prop | Tipo | Obligatoria | Por defecto | Descripción |
+|---|---|---|---|---|
+| `foto` | `FotoGaleria` | Sí | — | Foto con su evento de contexto. |
+| `resaltada` | `boolean` | No | `false` | Marca la foto abierta desde el detalle. |
+| `ancho` | `string` | No | `'w-full'` | Clase de Tailwind con el ancho. |
+
+Tres decisiones que no son obvias:
+
+- **La imagen es decorativa** (`alt=""`), porque el enlace ya lleva `aria-label` con el título y la fecha. Con las dos, un lector de pantalla lo repetiría dos veces, y dos fotos del mismo suenan distintas al recorrer la galería.
+- **Debajo hay un degradado de la categoría.** La foto del seed es una URL externa y puede fallar sin conexión: si el `onError` la apaga, queda el degradado con su icono, no un hueco roto. El degradado sale de `degradadoCategoriaEvento` de `categorias.js`.
+- **El pie va sobre la foto, no debajo.** En un mosaico lo que importa es reconocer la imagen, y taparla con un bloque de texto taparía el recuerdo entero. El degradado del pie es lo que permite leerlo sobre cualquier foto.
+
 
 ## Componentes de calendario (`src/components/calendar/`)
 ### `CalendarioMes`
@@ -377,6 +405,12 @@ Fuente única de las categorías. Ningún otro archivo escribe un slug.
   derivados de `Object.keys()`.
 - `CATEGORIA`, `CATEGORIA_IDEA`: constantes con nombre, derivadas del catálogo.
 - `PATRON_CATEGORIA`, `esCategoriaValida()`, `esCategoriaIdeaValida()`.
+- `degradadoCategoriaEvento(clave)`, `degradadoCategoriaIdea(clave)`: el
+  degradado de reserva cuando no hay foto o la foto no carga. Devuelven un
+  `style` con `backgroundImage`, no una clase, por el mismo motivo que los
+  colores: una clase construida en tiempo de ejecución no llega al CSS final.
+  **Están aquí y no en `planeador.js`:** la galería necesita el de los eventos y
+  mantener los dos habría sido la misma interpolación en dos sitios.
 
 **Las claves son slugs, las etiquetas no.** La clave va al almacén y a la URL, y
 por eso no lleva tildes ni espacios; la etiqueta visible sí los lleva. Un cambio
@@ -462,7 +496,28 @@ const cuadricula = useMemo(
 **Por qué la cuadrícula tiene 4, 5 o 6 filas y no siempre 6:** se extiende solo hasta completar la última semana. Fevereiro de 2027 (empieza en lunes, 28 días) ocupa exactamente 4 filas; agosto de 2026 (empieza en sábado) ocupa 6. Fijar 6 siempre dejaría dos semanas vacías en la mitad de los meses. El alto de la rejilla cambia al navegar, pero ese salto cae por debajo del pliegue en móvil.
 
 ### `src/utils/fechas.js`
-`LOCALE`, `DIAS_SEMANA`, `DIAS_SEMANA_LARGOS`, `aFecha`, `formatearFecha`, `formatearHora`, `hoyISO`, `diaDelMes`, `esDelMesVisible`, `eventosOrdenados`, `eventosProximos`, `agruparPorFecha`, `etiquetaRelativa`, `esHoy`, `estaPasada`, `diasHasta`, `estaEnRango`, `getDay`.
+`LOCALE`, `DIAS_SEMANA`, `DIAS_SEMANA_LARGOS`, `aFecha`, `formatearFecha`, `formatearHora`, `hoyISO`, `diaDelMes`, `esDelMesVisible`, `eventosOrdenados`, `eventosProximos`, `agruparPorFecha`, `agruparPorMes`, `etiquetaDeMes`, `etiquetaRelativa`, `esHoy`, `estaPasada`, `diasHasta`, `estaEnRango`, `getDay`.
+
+### `src/utils/galeria.js`
+Derivar la galería a partir de los eventos. Todo es pura: recibe eventos y devuelve datos, sin React ni acceso al almacén, por eso se prueba sin montar nada.
+
+- `extraerFotos(eventos)`: deja solo los eventos con foto utilizable y los
+  ordena de más reciente a más antigua. Descarta `foto: null`, cadena vacía y
+  eventos sin `id` o sin `fecha`, que no se podrían enlazar ni agrupar.
+- `agruparFotosPorMes(fotos)`: envuelve a `agruparPorMes` de `fechas.js` en vez
+  de reimplementar el agrupado, para que el encabezado del mes se escriba en un
+  solo sitio.
+- `aniosConFotos(fotos)`, `filtrarPorAnio(fotos, anio)`, `anioValido(valor)`,
+  `textoRecuento(fotos)`.
+
+**El orden no es el del calendario.** `eventosOrdenados` pone lo próximo arriba;
+la galería pone lo último que pasó primero, porque se recorre como un álbum. A
+igual de día manda la hora, y el evento sin hora va al final: ocupa el día
+entero y no tiene una hora propia con la que ordenar.
+
+`anioValido()` normaliza al leer el parámetro de la URL, no al escribirlo: un
+`?anio=20` se trata como "sin filtro" en lugar de dejar el mosaico vacío sin
+explicación, que es la peor forma de fallar.
 
 ### `src/utils/ids.js`
 `nuevoId()` → UUID v4 con `crypto.randomUUID()`.

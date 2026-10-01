@@ -34,6 +34,17 @@ El motivo de separarlas es que la sesión es el único dato que **no se puede re
 
 **Principio:** las páginas desconocen el origen de los datos (localStorage hoy, Supabase mañana). Ver `docs/MIGRACION_SUPABASE.md`.
 
+## Páginas que son vistas sobre otras
+La galería no tiene datos propios: es una **vista** sobre los eventos. `src/utils/galeria.js` recibe la lista de eventos y devuelve la de los que tienen foto, ordenada y agrupada por mes.
+
+- **Sin tabla, sin clave y sin service nuevos.** Una foto es `Evento.foto`, así que al borrar un recuerdo su foto desaparece sin borrar nada más, y no existe el estado en el que las dos cosas se desincronicen.
+- **Consecuencia para Fase 2:** si en Supabase `foto` pasa a ser una tabla aparte (por ejemplo, para varias fotos por evento), la galería deja de ser derivable y habrá que darle su propio service. Está anotado en `docs/MIGRACION_SUPABASE.md`.
+- **El orden no se hereda del calendario.** El calendario ordena ascendente (lo próximo arriba) y la galería descendente (lo último que pasó primero). `extraerFotos` lo hace explícito en vez de reutilizar `eventosOrdenados`, porque heredarlo sería correcto por casualidad.
+- **El filtro de año viaja en la URL** (`?anio=2026`), igual que `?mes=` en el calendario y `?categoria=` en el planeador. Se normaliza al leerlo: un `?anio=20` se trata como "sin filtro" en vez de dejar la página vacía sin explicación.
+- **`?evento=<id>`** lo escribe el enlace "Ver en la galería" del detalle y resalta esa foto con `aria-current`. Al cambiar de año se borra, porque la foto resaltada puede no estar en el año nuevo.
+- **El degradado de reserva vive en `categorias.js`**, no en `planeador.js` ni en el componente: la galería necesita el de los eventos y mantener los dos habría sido la misma interpolación escrita en dos sitios.
+
+
 ## Validación en dos capas
 Las reglas viven solo en `src/utils/validaciones.js` y se aplican en dos sitios:
 - **Formulario:** para pintar el error en el input concreto (UX inmediata).
@@ -43,7 +54,7 @@ Que el service valide no es redundancia: es una API pública y no puede asumir q
 
 ## Tokens y colores de categoría
 - **Tailwind v3:** los tokens estructurales (base, sidebar, accent, surface...) viven en `tailwind.config.js` (`theme.extend.colors`).
-- **Colores de categoría:** **no** están en Tailwind. Viven en `src/utils/categorias.js` como hex (`#7B22CA`, etc.) y se aplican con `style={{ backgroundColor }}`. 
+- **Colores de categoría:** **no** están en Tailwind. Viven en `src/utils/categorias.js` como hex (`#7B22CA`, etc.) y se aplican con `style={{ backgroundColor }}`.
   - **Motivo técnico:** Tailwind no genera clases construidas dinámicamente (`bg-${hex}` o `bg-${clave}` concatenada en runtime) porque las purga al escanear el código fuente. Usar `style` mantiene `categorias.js` como **única fuente de verdad** y evita `safelist` innecesario.
 - **Decisión sobre Tailwind:** fijamos `tailwindcss@3.4.17` explícitamente. Vite instalaría v4 por defecto (que usa `@theme` en CSS y elimina `tailwind.config.js`). Esta decisión se documenta aquí y en `docs/CHANGELOG.md` (paso a) para facilitar una migración futura.
 
@@ -99,5 +110,5 @@ Ninguna fecha se construye con `new Date('YYYY-MM-DD')`. Esa cadena se interpret
 - **c)** Calendario mensual a mano con date-fns. **Hecho.**
 - **d)** `EventoFormModal` (validación por campo con `ErrorValidacion`, contador 500, chips, drag&drop → compresión con canvas a 1200 px → base64), detalle/editar/eliminar, estado "evento no encontrado" para el `:id`.
 - **e)** Planeador: filtros, corazón favorita, "Nueva idea", "Convertir en evento" precargando el formulario. **Hecho.**
-- **f)** Galería: grid responsive → navega a detalle.
+- **f)** Galería: grid responsive → navega a detalle. **Hecho.**
 - **g)** Pulido, `resetDatos` en Configuración, vistas Semana/Día, README final y cierre probando `npm run dev`.

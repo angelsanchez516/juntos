@@ -27,7 +27,7 @@
 /**
  * Categoría de una IdeaCita.
  *
- * Separate de {@link CategoriaEvento}: una idea se filtra por contexto
+ * Separado de {@link CategoriaEvento}: una idea se filtra por contexto
  * ("en casa", "afuera"), mientras que un evento se clasifica por naturaleza
  * ("cita", "viaje"). Al convertir una idea en evento, la idea aporta título,
  * descripción, foto y categoría de contexto.

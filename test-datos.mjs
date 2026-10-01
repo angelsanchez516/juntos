@@ -937,6 +937,30 @@ async function montar(elemento) {
       });
     },
 
+    /**
+     * Dispara un evento que no viene del ratón ni del teclado.
+     *
+     * Existe para lo que dispara la red, como el `error` de una imagen que no
+     * carga: en el navegador lo emite el propio navegador, y aquí hay que
+     * provocarlo a mano. Va dentro de `act` porque el evento provoca un cambio
+     * de estado en React, y sin el envoltorio el repintado se aplicaría más
+     * tarde que la comprobación y esta mediría el estado anterior.
+     *
+     * @param {Element} el Elemento que emite el evento.
+     * @param {string} tipo Nombre del evento, por ejemplo `'error'`.
+     * @returns {Promise<void>} Termina cuando React ha repintado.
+     * @example
+     * await app.disparar(imagen, 'error');
+     */
+    async disparar(el, tipo) {
+      if (!el) {
+        throw new Error(`disparar() no encontró el elemento para el evento "${tipo}".`);
+      }
+      await act(async () => {
+        el.dispatchEvent(new dom.window.Event(tipo, { bubbles: false }));
+      });
+    },
+
     /** Desmonta y limpia. */
     async desmontar() {
       await act(async () => root.unmount());
@@ -1869,9 +1893,14 @@ comprobar('con valores raros no aparece `undefined`', !JSON.stringify(pl.ideaAVa
 comprobar('convertir sin idea lanza en vez de devolver basura', (() => { try { pl.ideaAValoresEvento(null); return false; } catch { return true; } })());
 
 console.log('\n== Paso e: presentacion de la tarjeta ==');
-comprobar('el degradado usa los colores del catálogo', pl.degradadoCategoria('relax').backgroundImage.includes(cg.obtenerCategoriaIdea('relax').hex), pl.degradadoCategoria('relax').backgroundImage);
-comprobar('una categoría inventada no rompe el degradado', pl.degradadoCategoria('inventada').backgroundImage.startsWith('linear-gradient'));
-comprobar('el degradado es un estilo, no una clase', typeof pl.degradadoCategoria('relax').backgroundImage === 'string' && !('className' in pl.degradadoCategoria('relax')));
+// El degradado vive en `categorias.js` y no en `planeador.js`: la galería
+// necesita el de los eventos y mantener los dos habría sido la misma
+// interpolación escrita en dos sitios.
+comprobar('el degradado usa los colores del catálogo', cg.degradadoCategoriaIdea('relax').backgroundImage.includes(cg.obtenerCategoriaIdea('relax').hex), cg.degradadoCategoriaIdea('relax').backgroundImage);
+comprobar('una categoría inventada no rompe el degradado', cg.degradadoCategoriaIdea('inventada').backgroundImage.startsWith('linear-gradient'));
+comprobar('el degradado es un estilo, no una clase', typeof cg.degradadoCategoriaIdea('relax').backgroundImage === 'string' && !('className' in cg.degradadoCategoriaIdea('relax')));
+comprobar('el degradado de evento usa los colores de su categoría', cg.degradadoCategoriaEvento('viaje').backgroundImage.includes(cg.obtenerCategoria('viaje').hex), cg.degradadoCategoriaEvento('viaje').backgroundImage);
+comprobar('una categoría de evento inventada no rompe el degradado', cg.degradadoCategoriaEvento('inventada').backgroundImage.startsWith('linear-gradient'));
 comprobar('el corazón anuncia la acción, no solo el estado', pl.etiquetaFavorita({ titulo: 'Picnic', favorita: true }).startsWith('Quitar de favoritas: Picnic'), pl.etiquetaFavorita({ titulo: 'Picnic', favorita: true }));
 comprobar('el corazón sin marcar ofrece marcarla', pl.etiquetaFavorita({ titulo: 'Picnic', favorita: false }) === 'Marcar como favorita: Picnic', pl.etiquetaFavorita({ titulo: 'Picnic', favorita: false }));
 comprobar('sin título el corazón sigue siendo entendible', pl.etiquetaFavorita({ favorita: false }) === 'Marcar como favorita');
@@ -2169,6 +2198,329 @@ comprobar('la idea desaparece de la lista', tarjetaBorrable() === undefined);
 await ci.resetCitas();
 await appAlta.desmontar();
 comprobar('desmontar la página no deja avisos en consola', true);
+
+
+/*
+ * ---------------------------------------------------------------------------
+ * Paso f: la galería.
+ *
+ * La galería no guarda fotos propias: usa la de cada evento. Eso significa que
+ * estas pruebas no necesitan sembrar nada nuevo, solo comprobar que la vista
+ * se deriva bien de los eventos que ya hay y que la foto llega a su detalle.
+ *
+ * La lógica de derivación se prueba aparte, sin montar nada, porque es pura.
+ * Lo que necesita DOM es lo que de verdad necesita DOM: pintar el mosaico,
+ * seguir un enlace y leer un parámetro de la URL.
+ * ---------------------------------------------------------------------------
+ */
+const ga = await vite.ssrLoadModule('/src/utils/galeria.js');
+const GaleriaPagina = (await vite.ssrLoadModule('/src/pages/Galeria.jsx')).default;
+
+console.log('\n== Paso f: la galería se deriva de los eventos ==');
+const eventosSemFoto = [
+  { id: 'ev-sin-foto', fecha: '2026-10-02', titulo: 'Cena en casa', categoria: 'cita' },
+  { id: 'ev-foto', fecha: '2026-10-14', titulo: 'Noche de juegos', categoria: 'amigos', foto: 'https://ejemplo.test/a.jpg' },
+  { id: 'ev-vacia', fecha: '2026-10-20', titulo: 'Paseo', categoria: 'viaje', foto: '   ' },
+  { id: 'ev-nulo', fecha: '2026-10-21', titulo: 'Café', categoria: 'cita', foto: null },
+  { fecha: '2026-10-22', titulo: 'Sin id', categoria: 'cita', foto: 'https://ejemplo.test/b.jpg' },
+  { id: 'ev-sin-fecha', titulo: 'Sin fecha', categoria: 'cita', foto: 'https://ejemplo.test/c.jpg' },
+];
+const fotosDerivadas = ga.extraerFotos(eventosSemFoto);
+// Una foto sin id o sin fecha no se puede enlazar a su recuerdo ni agrupar, así
+// que se descarta junto con las que no son utilizables.
+comprobar('solo entran los eventos con foto utilizable', fotosDerivadas.length === 1, String(fotosDerivadas.length));
+comprobar('la foto conserva el evento de contexto', fotosDerivadas[0].evento?.id === 'ev-foto', fotosDerivadas[0].evento?.id ?? 'sin evento');
+comprobar('una foto en blanco no cuela como imagen', !fotosDerivadas.some((f) => f.id === 'ev-vacia'), fotosDerivadas.map((f) => f.id).join('|'));
+comprobar('una foto nula no cuela como imagen', !fotosDerivadas.some((f) => f.id === 'ev-nulo'), fotosDerivadas.map((f) => f.id).join('|'));
+comprobar('sin lista de eventos no hay fotos y no se rompe', ga.extraerFotos(null).length === 0 && ga.extraerFotos(undefined).length === 0);
+comprobar('sin lista de eventos no hay fotos y no se rompe con lista vacía', ga.extraerFotos([]).length === 0);
+
+// El orden de la galería es por recencia, al revés que el calendario. Se
+// comprueba con dos años, porque con uno solo los dos sentidos coinciden y la
+// prueba pasaría sin estar mirando lo que dice mirar.
+const eventosParaOrden = [
+  { id: 'a', fecha: '2025-03-01', titulo: 'Viejo', categoria: 'cita', foto: 'https://ejemplo.test/1.jpg' },
+  { id: 'b', fecha: '2026-12-01', titulo: 'Nuevo', categoria: 'cita', foto: 'https://ejemplo.test/2.jpg' },
+  { id: 'c', fecha: '2026-01-05', titulo: 'Intermedio', categoria: 'cita', foto: 'https://ejemplo.test/3.jpg' },
+];
+comprobar(
+  'las fotos van de más reciente a más antigua',
+  ga.extraerFotos(eventosParaOrden).map((f) => f.id).join(',') === 'b,c,a',
+  ga.extraerFotos(eventosParaOrden).map((f) => f.id).join(','),
+);
+// Dos eventos el mismo día: manda la hora, y el que no tiene hora va al final
+// porque ocupa el día entero en vez de un momento concreto.
+const eventosMismoDia = [
+  { id: 'sin-hora', fecha: '2026-10-14', titulo: 'A', categoria: 'cita', foto: 'https://ejemplo.test/1.jpg' },
+  { id: 'tarde', fecha: '2026-10-14', titulo: 'B', categoria: 'cita', hora: '21:00', foto: 'https://ejemplo.test/2.jpg' },
+  { id: 'manana', fecha: '2026-10-14', titulo: 'C', categoria: 'cita', hora: '09:00', foto: 'https://ejemplo.test/3.jpg' },
+];
+comprobar(
+  'a igualdad de día manda la hora',
+  ga.extraerFotos(eventosMismoDia).map((f) => f.id).join(',') === 'tarde,manana,sin-hora',
+  ga.extraerFotos(eventosMismoDia).map((f) => f.id).join(','),
+);
+
+const agrupadas = ga.agruparFotosPorMes(ga.extraerFotos(eventosParaOrden));
+comprobar('las fotos se agrupan por mes', agrupadas.length === 3, String(agrupadas.length));
+comprobar('los meses van del más reciente al más antiguo', agrupadas[0].clave === '2026-12' && agrupadas[agrupadas.length - 1].clave === '2025-03', agrupadas.map((g) => g.clave).join('|'));
+comprobar('el encabezado del mes se escribe una sola vez', agrupadas.every((g) => typeof g.etiqueta === 'string' && g.etiqueta !== ''), agrupadas.map((g) => g.etiqueta).join('|'));
+
+comprobar('los años con fotos van de más reciente a más antigua', ga.aniosConFotos(ga.extraerFotos(eventosParaOrden)).join(',') === '2026,2025', ga.aniosConFotos(ga.extraerFotos(eventosParaOrden)).join(','));
+comprobar('un año repetido no se repite en el filtro', ga.aniosConFotos(ga.extraerFotos([...eventosParaOrden, eventosParaOrden[1]])).length === 2, String(ga.aniosConFotos(ga.extraerFotos([...eventosParaOrden, eventosParaOrden[1]])).length));
+comprobar('filtrar por año deja solo ese año', ga.filtrarPorAnio(ga.extraerFotos(eventosParaOrden), '2025').length === 1, String(ga.filtrarPorAnio(ga.extraerFotos(eventosParaOrden), '2025').length));
+comprobar('sin año no se filtra nada', ga.filtrarPorAnio(ga.extraerFotos(eventosParaOrden), null).length === 3, String(ga.filtrarPorAnio(ga.extraerFotos(eventosParaOrden), null).length));
+comprobar('un año de la URL se acepta si tiene cuatro cifras', ga.anioValido('2026') === '2026', String(ga.anioValido('2026')));
+comprobar('un año mal escrito no filtra y deja la página vacía', ga.anioValido('20') === null && ga.anioValido('<script>') === null && ga.anioValido('') === null, String(ga.anioValido('20')));
+comprobar('el recuento concuerda en singular', ga.textoRecuento([{ id: 'a' }]) === '1 foto', ga.textoRecuento([{ id: 'a' }]));
+comprobar('el recuento concuerda en plural', ga.textoRecuento([{ id: 'a' }, { id: 'b' }]) === '2 fotos', ga.textoRecuento([{ id: 'a' }, { id: 'b' }]));
+
+console.log('\n== Paso f: la página pinta el mosaico ==');
+await ev.resetEventos();
+const montarGaleria = (busqueda = '') =>
+  montar(
+    ReactCjs.createElement(
+      MemoryRouter,
+      { initialEntries: [`/galeria${busqueda}`] },
+      ReactCjs.createElement(GaleriaPagina),
+      ReactCjs.createElement(EcoDeUrl),
+    ),
+  );
+
+const celdas = (raiz) => [...raiz.querySelectorAll('a[aria-label^="Ver el recuerdo"]')];
+
+/**
+ * Escribe una lista de eventos en el almacén que está usando la app ahora mismo.
+ *
+ * Se escribe en `window.localStorage` y no en el `LocalStorageMock` de arriba
+ * porque, desde que se monto el DOM de jsdom, la app lee del almacén de jsdom.
+ * Escribir en el mock dejaría los datos a medias de camino y la página se
+ * montaría con los del seed, y la prueba mediría lo que ya había en vez de lo
+ * que se acaba de escribir.
+ *
+ * @param {ReadonlyArray<object>} datos Eventos a guardar.
+ * @returns {void}
+ * @example
+ * escribirEventos([{ id: 'x', titulo: 'Uno', fecha: '2025-01-01' }]);
+ */
+const escribirEventos = (datos) =>
+  globalThis.window.localStorage.setItem('juntos:v3:eventos', JSON.stringify(datos));
+const conFoto = (await ev.getEventos()).filter((e) => typeof e.foto === 'string' && e.foto.trim() !== '');
+comprobar('el seed trae al menos un evento con foto', conFoto.length > 0, String(conFoto.length));
+
+const appGaleria = await montarGaleria();
+comprobar('la galería se monta con las fotos del seed', celdas(appGaleria.raiz).length === conFoto.length, `${celdas(appGaleria.raiz).length} de ${conFoto.length}`);
+// El orden de la galería es por recencia, al revés que el calendario, así que
+// aquí importa de dónde vino la lista y no de qué la ordena.
+const ordenEnPantalla = celdas(appGaleria.raiz).map((a) => a.getAttribute('href'));
+comprobar(
+  'la primera foto del mosaico es la más reciente',
+  ordenEnPantalla[0] === `/evento/${encodeURIComponent(ga.extraerFotos(await ev.getEventos())[0].id)}`,
+  ordenEnPantalla.slice(0, 3).join('|'),
+);
+comprobar('cada foto dice a qué recuerdo y de cuándo va', celdas(appGaleria.raiz).every((a) => /^Ver el recuerdo de .+, .+$/.test(a.getAttribute('aria-label') ?? '')), celdas(appGaleria.raiz)[0]?.getAttribute('aria-label') ?? '(sin enlace)');
+comprobar('el mosaico nombra los meses', appGaleria.raiz.querySelectorAll('h2').length > 0, String(appGaleria.raiz.querySelectorAll('h2').length));
+comprobar('cada mes tiene su lista de fotos', appGaleria.raiz.querySelectorAll('ul[role="list"]').length === appGaleria.raiz.querySelectorAll('h2').length, `${appGaleria.raiz.querySelectorAll('ul[role="list"]').length} listas y ${appGaleria.raiz.querySelectorAll('h2').length} meses`);
+// La imagen es decorativa porque el enlace ya lleva título y fecha en la
+// etiqueta. Con las dos, un lector de pantalla lo repetiría dos veces.
+const primeraImagen = appGaleria.raiz.querySelector('a[aria-label^="Ver el recuerdo"] img');
+comprobar('la foto no repite el texto del enlace', primeraImagen?.getAttribute('alt') === '', primeraImagen?.getAttribute('alt') ?? 'sin alt');
+comprobar('la foto se carga sin bloquear la página', primeraImagen?.getAttribute('loading') === 'lazy', primeraImagen?.getAttribute('loading') ?? 'sin atributo');
+comprobar('la foto apunta a la del evento', conFoto.some((e) => appGaleria.raiz.querySelector(`a[aria-label^="Ver el recuerdo"] img[src="${e.foto}"]`) !== null));
+comprobar('el recuento dice cuántas fotos hay', appGaleria.raiz.textContent.includes(`${conFoto.length} foto${conFoto.length === 1 ? '' : 's'}`), appGaleria.raiz.textContent.slice(0, 120));
+comprobar('no hay `undefined` en pantalla', !appGaleria.raiz.textContent.includes('undefined'), appGaleria.raiz.textContent.slice(0, 120));
+comprobar('no hay `[object Object]` en pantalla', !appGaleria.raiz.textContent.includes('[object Object]'), appGaleria.raiz.textContent.slice(0, 120));
+comprobar('la foto enlaza a su recuerdo', celdas(appGaleria.raiz).every((a) => /^\/evento\/[^/]+$/.test(a.getAttribute('href') ?? '')), celdas(appGaleria.raiz)[0]?.getAttribute('href') ?? '(sin enlace)');
+
+console.log('\n== Paso f: el enlace "Ver en la galería" del detalle ==');
+const eventoResaltado = conFoto[0];
+const appDesdeDetalle = await montarGaleria(`?evento=${encodeURIComponent(eventoResaltado.id)}`);
+const resaltada = appDesdeDetalle.raiz.querySelector('a[aria-current="true"]');
+comprobar('la foto abierta desde el detalle se resalta', resaltada !== null, `${celdas(appDesdeDetalle.raiz).length} fotos y ninguna resaltada`);
+comprobar('se resalta la foto de ese evento y no otra', resaltada?.getAttribute('aria-label')?.includes(eventoResaltado.titulo) === true, resaltada?.getAttribute('aria-label') ?? '(sin enlace)');
+comprobar('solo se resalta una foto', appDesdeDetalle.raiz.querySelectorAll('a[aria-current="true"]').length === 1, String(appDesdeDetalle.raiz.querySelectorAll('a[aria-current="true"]').length));
+await appDesdeDetalle.desmontar();
+
+// Un id que no existe no puede romper la página ni inventarse una foto.
+const appEventoInexistente = await montarGaleria('?evento=no-existe');
+comprobar('un evento inexistente deja la galería entera', celdas(appEventoInexistente.raiz).length === conFoto.length, String(celdas(appEventoInexistente.raiz).length));
+comprobar('y no resalta nada', appEventoInexistente.raiz.querySelectorAll('a[aria-current="true"]').length === 0, String(appEventoInexistente.raiz.querySelectorAll('a[aria-current="true"]').length));
+await appEventoInexistente.desmontar();
+
+console.log('\n== Paso f: el filtro de año ==');
+// Con un solo año con fotos el filtro no se ofrece: un selector de una única
+// opción solo añade un clic para acabar en la misma galería de siempre.
+const aniosDelSeed = ga.aniosConFotos(ga.extraerFotos(await ev.getEventos()));
+comprobar('el seed solo tiene fotos de un año', aniosDelSeed.length === 1, aniosDelSeed.join(','));
+comprobar('con un solo año no se ofrece el filtro', appGaleria.raiz.querySelector('nav[aria-label="Filtrar la galería por año"]') === null);
+await appGaleria.desmontar();
+
+// Para probar el filtro hacen falta fotos de dos años, y el seed es de uno solo.
+// Se siembran a mano unos datos de dos años: es lo que hará la pareja dentro de
+// un año, y el filtro tiene que funcionar sin que el seed cambie.
+const ANIO_VIEJO = '2025';
+const datosDeDosAnios = [
+  ...(await ev.getEventos()),
+  {
+    id: 'ev-antiguo-1',
+    titulo: 'Primer viaje juntos',
+    descripcion: '',
+    fecha: `${ANIO_VIEJO}-06-14`,
+    hora: '18:00',
+    categoria: 'viaje',
+    foto: 'https://ejemplo.test/viejo-1.jpg',
+    lugar: '',
+  },
+  {
+    id: 'ev-antiguo-2',
+    titulo: 'Aniversario de la playa',
+    descripcion: '',
+    fecha: `${ANIO_VIEJO}-08-02`,
+    hora: '',
+    categoria: 'cita',
+    foto: 'https://ejemplo.test/viejo-2.jpg',
+    lugar: '',
+  },
+  // Sin foto a propósito: el filtro cuenta fotos, no años de recuerdos.
+  {
+    id: 'ev-antiguo-sin-foto',
+    titulo: 'Cena de aniversario',
+    descripcion: '',
+    fecha: `${ANIO_VIEJO}-09-01`,
+    hora: '21:00',
+    categoria: 'cita',
+    foto: null,
+    lugar: '',
+  },
+];
+escribirEventos(datosDeDosAnios);
+
+const fotosDeDosAnios = ga.extraerFotos(datosDeDosAnios);
+const anios = ga.aniosConFotos(fotosDeDosAnios);
+comprobar('con fotos de dos años hay dos años', anios.length === 2, anios.join(','));
+comprobar('los años van del más reciente al más antiguo', anios[0] === '2026' && anios[1] === ANIO_VIEJO, anios.join(','));
+
+const appAnios = await montarGaleria();
+comprobar('con varios años se ofrece el filtro', appAnios.raiz.querySelector('nav[aria-label="Filtrar la galería por año"]') !== null);
+comprobar('el filtro ofrece Todos y cada año', ['Todos', ...anios].every((t) => appAnios.raiz.textContent.includes(t)), appAnios.raiz.textContent.slice(0, 160));
+comprobar('un año sin fotos no aparece en el filtro', !ga.aniosConFotos(fotosDeDosAnios).some((a) => a === '2024'));
+comprobar('el filtro no filtra nada todavía', celdas(appAnios.raiz).length === fotosDeDosAnios.length, `${celdas(appAnios.raiz).length} de ${fotosDeDosAnios.length}`);
+
+const enlaceAnioViejo = appAnios.raiz.querySelector(`nav[aria-label="Filtrar la galería por año"] a[href="/galeria?anio=${ANIO_VIEJO}"]`);
+comprobar('el enlace del año apunta a la URL filtrada', enlaceAnioViejo !== null, `anio=${ANIO_VIEJO}`);
+await appAnios.pulsar(enlaceAnioViejo, 'el enlace del año antiguo, en el filtro de la galería');
+comprobar('elegir un año lo escribe en la URL', ecoUrl().includes(`anio=${ANIO_VIEJO}`), ecoUrl());
+const fotosDelAnioViejo = ga.filtrarPorAnio(fotosDeDosAnios, ANIO_VIEJO).length;
+comprobar('el filtro acota las fotos a ese año', celdas(appAnios.raiz).length === fotosDelAnioViejo, `${celdas(appAnios.raiz).length} de ${fotosDelAnioViejo}`);
+comprobar('el año elegido queda marcado como seleccionado', document.querySelector('nav[aria-label="Filtrar la galería por año"] a[aria-current="true"]')?.textContent.trim() === ANIO_VIEJO, document.querySelector('nav[aria-label="Filtrar la galería por año"] a[aria-current="true"]')?.textContent ?? '(sin marcar)');
+comprobar('el recuento pasa a contar ese año', appAnios.raiz.textContent.includes(`${fotosDelAnioViejo} foto${fotosDelAnioViejo === 1 ? '' : 's'}`), appAnios.raiz.textContent.slice(0, 120));
+comprobar('el filtro no deja la foto resaltada de antes', appAnios.raiz.querySelector('a[aria-current="true"][aria-label^="Ver el recuerdo"]') === null, 'queda resaltada');
+
+// Volver a pulsar el año activo cierra el filtro, en vez de recargar la página.
+await appAnios.pulsar(document.querySelector('nav[aria-label="Filtrar la galería por año"] a[aria-current="true"]'), 'el año ya seleccionado, para quitar el filtro');
+comprobar('volver a elegir el año activo quita el filtro', !ecoUrl().includes('anio='), ecoUrl());
+comprobar('y vuelven todas las fotos', celdas(appAnios.raiz).length === fotosDeDosAnios.length, String(celdas(appAnios.raiz).length));
+await appAnios.desmontar();
+
+await ev.resetEventos();
+
+// Una URL con año malo no debe dejar la página vacía sin explicación.
+const appAnioMalo = await montarGaleria('?anio=20');
+comprobar('un año mal escrito no filtra', celdas(appAnioMalo.raiz).length === conFoto.length, String(celdas(appAnioMalo.raiz).length));
+comprobar('ni se pinta en pantalla', !appAnioMalo.raiz.textContent.includes('>20<') && !appAnioMalo.raiz.textContent.includes('no hay fotos de 20'), appAnioMalo.raiz.textContent.slice(0, 160));
+await appAnioMalo.desmontar();
+
+// Y un año que existe en la URL pero no tiene fotos explica el motivo y ofrece
+// volver, en vez de parecer que la pareja no tiene ninguna foto.
+const anioVacio = '1999';
+const appAnioVacio = await montarGaleria(`?anio=${anioVacio}`);
+comprobar('un año sin fotos avisa de que no hay ninguna', appAnioVacio.raiz.textContent.includes(`No hay fotos de ${anioVacio}`), appAnioVacio.raiz.textContent.slice(0, 160));
+comprobar('y ofrece volver a ver todos los años', appAnioVacio.porTexto('button', 'Ver todos los años') !== null);
+await appAnioVacio.pulsar(appAnioVacio.porTexto('button', 'Ver todos los años'), 'el botón "Ver todos los años"');
+comprobar('volver quita el año de la URL', !ecoUrl().includes('anio='), ecoUrl());
+comprobar('y recupera las fotos', celdas(appAnioVacio.raiz).length === conFoto.length, String(celdas(appAnioVacio.raiz).length));
+await appAnioVacio.desmontar();
+
+console.log('\n== Paso f: los estados de carga, error y vacío ==');
+// Sin ninguna foto, la página tiene que decir qué hacer, no quedarse en blanco.
+await ev.resetEventos();
+const eventosSinNingunaFoto = (await ev.getEventos()).map((e) => ({ ...e, foto: null }));
+// Se escribe el almacén a mano, y no con `crearEvento`, porque quitar la foto de
+// un evento ya creado no es una operación de la app: se sabe que el modelo
+// admite `foto: null` y lo que se prueba es que la galería lo aguanta.
+escribirEventos(eventosSinNingunaFoto);
+const appVacia = await montarGaleria();
+comprobar('sin fotos la página no enseña mosaico', celdas(appVacia.raiz).length === 0, String(celdas(appVacia.raiz).length));
+comprobar('sin fotos explica que no hay ninguna', /Todav[ií]a no hay fotos/i.test(appVacia.raiz.textContent), appVacia.raiz.textContent.slice(0, 200));
+comprobar('sin fotos ofrece crear la primera', appVacia.porTexto('a', 'Añadir el primer recuerdo') !== null);
+comprobar('la salida enlaza al planeador', appVacia.porTexto('a', 'Añadir el primer recuerdo')?.getAttribute('href') === '/planeador', appVacia.porTexto('a', 'Añadir el primer recuerdo')?.getAttribute('href') ?? '(sin enlace)');
+await appVacia.desmontar();
+
+/*
+ * Con el almacén caído, la página avisa y deja reintentar.
+ *
+ * Falla al leer *y* al escribir a propósito, y no solo al leer: `leer()`
+ * convierte un fallo de lectura en `null`, que para el service significa
+ * "primer arranque", así que intentaría sembrar el seed. Si la escritura
+ * también falla, la siembra no cuaja y el error sube de verdad, que es el caso
+ * que llega a la persona: un almacén que no admite ni leer ni guardar.
+ *
+ * Con un almacén que solo rechaza la lectura, la galería mostraría el seed sin
+ * avisar de nada, y esa es justo la diferencia que esta comprobación no
+ * quería dejar pasar.
+ */
+const storageCaido = new LocalStorageMock({ fallaAlLeer: true, fallaAlEscribir: true });
+const ventanaParaError = globalThis.window;
+globalThis.window = { ...ventanaParaError, localStorage: storageCaido };
+const appError = await montarGaleria();
+comprobar('si el almacén está caído, la página avisa como alerta', appError.raiz.querySelector('[role="alert"]') !== null, `texto: ${appError.raiz.textContent.slice(0, 200)}`);
+comprobar('el aviso dice que se intente de nuevo', /int[eé]ntalo de nuevo/i.test(appError.raiz.textContent), appError.raiz.textContent.slice(0, 200));
+comprobar('el aviso de error ofrece reintentar', appError.porTexto('button', 'Reintentar') !== null);
+comprobar('y no enseña un mosaico vacío como si fuera contenido', celdas(appError.raiz).length === 0, String(celdas(appError.raiz).length));
+comprobar('ni inventa un recuento de fotos sin datos', !/\d+ fotos?/.test(appError.raiz.textContent), appError.raiz.textContent.slice(0, 200));
+
+// Reintentar con el almacén ya recuperado tiene que volver a pintar el mosaico.
+globalThis.window = ventanaParaError;
+await ev.resetEventos();
+const appReintentada = await montarGaleria();
+comprobar('reintentar con el almacén de vuelta recupera las fotos', celdas(appReintentada.raiz).length === conFoto.length, String(celdas(appReintentada.raiz).length));
+comprobar('y el aviso de error desaparece', appReintentada.raiz.querySelector('[role="alert"]') === null);
+await appReintentada.desmontar();
+await appError.desmontar();
+
+console.log('\n== Paso f: una foto que no carga ==');
+await ev.resetEventos();
+const appFotoRota = await montarGaleria();
+// Se dispara el fallo de carga a mano: en el navegador lo hace la propia red,
+// y en el arnés no hay red.
+const imagenes = [...appFotoRota.raiz.querySelectorAll('a[aria-label^="Ver el recuerdo"] img')];
+for (const imagen of imagenes) {
+  await appFotoRota.disparar(imagen, 'error');
+}
+comprobar('la foto rota no se queda con la imagen a medio cargar', [...appFotoRota.raiz.querySelectorAll('a[aria-label^="Ver el recuerdo"] img')].length < imagenes.length, `${imagenes.length} al principio, ${[...appFotoRota.raiz.querySelectorAll('a[aria-label^="Ver el recuerdo"] img')].length} después`);
+comprobar('la foto rota deja ver el degradado de su categoría', [...appFotoRota.raiz.querySelectorAll('a[aria-label^="Ver el recuerdo"] div[aria-hidden="true"]')].some((d) => (d.getAttribute('style') ?? '').includes('linear-gradient')), 'sin degradado');
+comprobar('el enlace sigue siendo utilizable sin la foto', appFotoRota.raiz.querySelector('a[aria-current="true"]') === null && celdas(appFotoRota.raiz).every((a) => (a.getAttribute('href') ?? '').startsWith('/evento/')), 'sin enlaces');
+await appFotoRota.desmontar();
+
+console.log('\n== Paso f: la foto y su recuerdo no se desincronizan ==');
+// La galería es una vista sobre los eventos, así que si se borra un recuerdo su
+// foto tiene que desaparecer sin borrar nada más. Si algún día se guardaran
+// fotos aparte, esta comprobación empezaría a fallar y avisaría.
+await ev.resetEventos();
+const eventosAntesDeBorrar = (await ev.getEventos()).filter((e) => typeof e.foto === 'string' && e.foto.trim() !== '');
+const appAntesDeBorrar = await montarGaleria();
+comprobar('antes de borrar hay una foto por evento con foto', celdas(appAntesDeBorrar.raiz).length === eventosAntesDeBorrar.length, String(celdas(appAntesDeBorrar.raiz).length));
+const eventoABorrar = eventosAntesDeBorrar[0];
+await ev.eliminarEvento(eventoABorrar.id);
+// La página no se recarga sola al cambiar el almacén: es un service distinto el
+// que avisaría. Se monta de nuevo para que el mosaico se derive del estado
+// bueno, que es justo lo que se quiere comprobar.
+await appAntesDeBorrar.desmontar();
+const appDespuesDeBorrar = await montarGaleria();
+comprobar('tras borrar un recuerdo su foto ya no está', !celdas(appDespuesDeBorrar.raiz).some((a) => a.getAttribute('href') === `/evento/${encodeURIComponent(eventoABorrar.id)}`), celdas(appDespuesDeBorrar.raiz).map((a) => a.getAttribute('href')).join('|'));
+comprobar('las demás fotos siguen ahí', celdas(appDespuesDeBorrar.raiz).length === eventosAntesDeBorrar.length - 1, String(celdas(appDespuesDeBorrar.raiz).length));
+await appDespuesDeBorrar.desmontar();
+await ev.resetEventos();
 
 
 await vite.close();

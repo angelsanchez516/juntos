@@ -6,8 +6,8 @@
  * comprimida lista para guardarse.
  *
  * POR QUÉ NO BASTA CON `file.type`
- * `File.type` lo pone el navegador a partir de la extensión del nombre, y su
- * extensión se la pone quienchoosable el archivo. Renombrar un `.html` con
+ * `File.type` lo pone el navegador a partir de la extensión del nombre, y esa
+ * extensión la elige quien guarda el archivo. Renombrar un `.html` con
  * scripts a `.jpg` lo convierte en un `image/jpeg` perfectamente válido para el
  * navegador. Un SVG es el caso extremo: es un archivo de texto con scripts
  * dentro, y con `<img>` no se ejecuta, pero si el servicio de galería lo acaba

@@ -19,7 +19,7 @@
  * @module utils/planeador
  */
 
-import { CATEGORIA, esCategoriaIdeaValida, obtenerCategoriaIdea } from './categorias';
+import { CATEGORIA, esCategoriaIdeaValida } from './categorias';
 import { LIMITES } from './validaciones';
 import { ORIGEN } from '../types/models';
 
@@ -244,25 +244,14 @@ export function esIdeaEditable(idea) {
   return idea?.origen === ORIGEN.USUARIO;
 }
 
-/**
- * Despliega el degradado de fondo de una idea sin imagen.
- *
- * El degradado se deriva de la categoría, no al revés: si el catálogo cambia de
- * color, la tarjeta cambia con él sin tocar este archivo. Y la idea sin foto
- * nunca muestra un hueco roto ni depende de que una URL externa cargue, que es
- * justo lo que pasa con las fotos del seed cuando no hay conexión.
- *
- * @param {import('../types/models.js').CategoriaIdeaCita|string} categoria Categoría.
- * @returns {{backgroundImage: string}} Estilo listo para `<div style={...} />`.
- * @example
- * DegradadoCategoria('relax'); // { backgroundImage: 'linear-gradient(...)' }
+/*
+ * El degradado de reserva de una idea sin imagen NO se define aquí, sino en
+ * `categorias.js` como `degradadoCategoriaIdea`, junto al resto de funciones que
+ * leen el catálogo. Estaba antes en este archivo y la galería necesitaba el
+ * equivalente para los eventos: mantener los dos habría sido copiar la misma
+ * interpolación en dos sitios, y cambiar la dirección del degradado en uno solo
+ * habría dejado la app con dos tipos de hueco.
  */
-export function degradadoCategoria(categoria) {
-  const { hex, bg } = obtenerCategoriaIdea(categoria);
-  return {
-    backgroundImage: `linear-gradient(135deg, ${hex} 0%, ${bg} 100%)`,
-  };
-}
 
 /**
  * Construye el `aria-label` del corazón de una idea.

@@ -11,13 +11,13 @@
  * foto es un intento, no una garantía: si no carga, el degradado de la categoría
  * queda debajo y no se ve ningún hueco.
  *
- * Related: src/utils/planeador.js (`degradadoCategoria`), TarjetaIdea.jsx
+ * Related: src/utils/categorias.js (`degradadoCategoriaIdea`), TarjetaIdea.jsx
  *
  * @module components/citas/ImagenIdea
  */
 
 import { useState } from 'react';
-import { degradadoCategoria } from '../../utils/planeador';
+import { degradadoCategoriaIdea } from '../../utils/categorias';
 
 /**
  * @typedef {object} ImagenIdeaProps
@@ -53,7 +53,7 @@ export default function ImagenIdea({
    * propia <img>, al fallar la carga el navegador sustituye el elemento entero
    * y el estilo se va con él, dejando el hueco roto.
    */
-  const estilo = degradadoCategoria(categoria);
+  const estilo = degradadoCategoriaIdea(categoria);
 
   if (!imagen || fallo) {
     return (

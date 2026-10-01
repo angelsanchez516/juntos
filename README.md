@@ -2,7 +2,7 @@
 
 "Juntos" es una aplicación web responsive para parejas: combina un calendario de recuerdos con un planeador de citas. Esta fase 1 es un prototipo **solo frontend**, con datos simulados persistidos en `localStorage`.
 
-## Estado actual (Pasos a, b, c, d y e)
+## Estado actual (Pasos a, b, c, d, e y f)
 - [x] Setup Vite + React (JS)
 - [x] Tailwind CSS v3.4.17 fijado (decisión para mantener `tailwind.config.js`)
 - [x] React Router + rutas (Inicio, Calendario, EventoDetalle, Planeador, Momentos, Galería, Configuración y Bienvenida fuera del layout)
@@ -21,7 +21,7 @@
 - [x] **Detalle del evento** con edición, borrado confirmado, vuelta a `?mes=` y enlace a la galería
 - [x] **Planeador de citas** (paso e): alta, edición y borrado de ideas propias, favoritas con actualización optimista, conversión a evento y filtros por categoría y favoritas en la URL
 - [x] **Origen de las ideas**: `IdeaCita.origen` distingue las del seed de las de la pareja, y solo estas se pueden editar o borrar
-- [ ] Galería (paso f)
+- [x] **Galería** (paso f): mosaico responsive agrupado por mes, derivado de los eventos, con filtro de año en la URL y enlace a cada recuerdo
 - [ ] Pulido final y vistas Semana/Día (paso g)
 
 ## Requisitos
@@ -63,6 +63,7 @@ Página/Componente  →  Hook  →  Service  →  localStorage
 - **IDs con `crypto.randomUUID()`:** UUID v4, compatible con las claves de Supabase e imposible de adivinar.
 - **Las ideas del seed no se editan ni se borran:** `IdeaCita.origen` dice de dónde viene cada una, y solo las de la pareja tienen botones de editar y borrar. Sin ese campo habría que reconocerlas por sus ids o por su contenido, que se rompe en cuanto cambia el seed.
 - **La cuadrícula se calcula fuera de React**, en funciones puras de `src/utils/calendario.js`, para poder testearla sin montar componentes.
+- **La galería es una vista, no una tabla:** sus fotos son `Evento.foto`, derivadas en `src/utils/galeria.js`. No hay clave de almacenamiento ni service nuevos, y no existe el estado en el que una foto y su recuerdo se desincronicen. Si en Supabase las fotos pasan a ser una tabla aparte, esto deja de ser derivable.
 - **Ninguna fecha se construye con `new Date('YYYY-MM-DD')`:** esa cadena es UTC, y en Bogotá (UTC-5) el 1 de octubre sería el 30 de septiembre a las 19:00. Todo pasa por `parseISO` o por números sueltos.
 
 Ver `docs/ARQUITECTURA.md` para el detalle completo.
@@ -92,7 +93,9 @@ conversión de ideas en eventos, integridad de las categorías, la cuadrícula d
 calendario (incluidos febrero de 2027 con 4 filas y agosto de 2026 con 6), y la
 interacción real del modal y del formulario: foco atrapado con Tab y Mayús+Tab,
 foco devuelto al cerrarlo, Escape, doble envío bloqueado, aviso de cambios sin
-guardar, borrado confirmado y su navegación. **444 comprobaciones.**
+guardar, borrado confirmado y su navegación. La galería se comprueba con su
+mosaico, su filtro de año, sus cuatro estados y el degradado de reserva cuando
+una foto remota no carga. **722 comprobaciones.**
 
 ## Notas importantes
 - **Login simulado:** la pantalla `/bienvenida` tiene un botón "Comenzar" que no realiza autenticación real. Esto queda marcado con `SEGURIDAD:` y `TODO-FASE2 (SEGURIDAD)`.

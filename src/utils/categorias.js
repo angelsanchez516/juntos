@@ -197,6 +197,56 @@ export function esCategoriaIdeaValida(categoria) {
 }
 
 /**
+ * Despliega un degradado de fondo a partir de una categoría.
+ *
+ * Sirve para lo que se pinta cuando una foto no existe o no carga: el color
+ * queda en el contenedor y no hay ningún hueco roto. Se aplica con `style`, no
+ * con una clase de Tailwind, por el mismo motivo que los colores: una clase
+ * construida en tiempo de ejecución no llega al CSS final.
+ *
+ * La dirección va de 135° para que el degradado caiga en diagonal, y de `hex`
+ * a `bg` en ese orden: el tono saturado en la esquina y el suave al resto.
+ *
+ * @param {string} hex Color principal de la categoría.
+ * @param {string} bg Color de fondo suave de la categoría.
+ * @returns {{backgroundImage: string}} Estilo listo para `<div style={...} />`.
+ * @example
+ * degradado('#7B22CA', '#F1F0FC');
+ * // { backgroundImage: 'linear-gradient(135deg, #7B22CA 0%, #F1F0FC 100%)' }
+ */
+function degradado(hex, bg) {
+  return {
+    backgroundImage: `linear-gradient(135deg, ${hex} 0%, ${bg} 100%)`,
+  };
+}
+
+/**
+ * Degradado de reserva de una categoría de evento.
+ *
+ * @param {CategoriaEvento|string} categoria Clave de la categoría.
+ * @returns {{backgroundImage: string}} Estilo listo para `<div style={...} />`.
+ * @example
+ * degradadoCategoriaEvento('viaje'); // degradado verde
+ */
+export function degradadoCategoriaEvento(categoria) {
+  const { hex, bg } = obtenerCategoria(categoria);
+  return degradado(hex, bg);
+}
+
+/**
+ * Degradado de reserva de una categoría de idea.
+ *
+ * @param {CategoriaIdeaCita|string} categoria Clave de la categoría.
+ * @returns {{backgroundImage: string}} Estilo listo para `<div style={...} />`.
+ * @example
+ * degradadoCategoriaIdea('relax'); // degradado lila
+ */
+export function degradadoCategoriaIdea(categoria) {
+  const { hex, bg } = obtenerCategoriaIdea(categoria);
+  return degradado(hex, bg);
+}
+
+/**
  * Lista de categorías de idea en el orden en que aparecen los chips de filtro
  * del planeador. La primera entrada es "Todas" y se gestiona aparte en la UI.
  *
@@ -286,7 +336,7 @@ export const CATEGORIA_IDEA = Object.freeze(
  * protestó. `obtenerCategoria()` caía en la categoría de reserva, así que los
  * cumpleaños se pintaban del color de "Otro", la leyenda leía `undefined` y
  * dejaba la página en blanco. La app parecía funcionar mientras los datos
- * estaban mal, y el error se discovered a ojo, mucho después.
+ * estaban mal, y el error se descubriría a ojo, mucho después.
  *
  * El slug no es una etiqueta: es una clave que viaja a la base de datos, a la
  * URL y a las métricas. Por eso tiene reglas.
@@ -312,7 +362,7 @@ comprobarSlugsDelCatalogo('CATEGORIAS_IDEA', Object.keys(CATEGORIAS_IDEA));
 /*
  * Segunda red: los símbolos de arriba se leen con `CATEGORIAS_EVENTO[clave]`, así
  * que si alguien renombra o borra una clave, `CATEGORIA.CITA` pasa a valer
- * `undefined` sin throwing. Un `undefined` como categoría se guarda en el dato
+ * `undefined` sin lanzar nada. Un `undefined` como categoría se guarda en el dato
  * y se rompe lejos de aquí, al pintar. Se comprueba en el mismo momento.
  */
 for (const [simbolo, clave] of Object.entries(CATEGORIA)) {

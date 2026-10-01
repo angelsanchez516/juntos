@@ -98,6 +98,6 @@ Ninguna fecha se construye con `new Date('YYYY-MM-DD')`. Esa cadena se interpret
 ## Próximos pasos (orden acordado)
 - **c)** Calendario mensual a mano con date-fns. **Hecho.**
 - **d)** `EventoFormModal` (validación por campo con `ErrorValidacion`, contador 500, chips, drag&drop → compresión con canvas a 1200 px → base64), detalle/editar/eliminar, estado "evento no encontrado" para el `:id`.
-- **e)** Planeador: filtros, corazón favorita, "Nueva idea", "Convertir en evento" precargando el formulario.
+- **e)** Planeador: filtros, corazón favorita, "Nueva idea", "Convertir en evento" precargando el formulario. **Hecho.**
 - **f)** Galería: grid responsive → navega a detalle.
 - **g)** Pulido, `resetDatos` en Configuración, vistas Semana/Día, README final y cierre probando `npm run dev`.

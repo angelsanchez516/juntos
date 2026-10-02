@@ -4,6 +4,23 @@ Todas las novedades de esta fase. Las secciones se rellenan **al terminar cada p
 
 ---
 
+## Auditoría de codificación
+
+### Añadido
+- **`npm run auditar-codificacion`** (`scripts/auditar-codificacion.mjs`): escanea los ficheros de texto del proyecto y falla con código 1 ante caracteres fuera del alfabeto latino y de los signos del español (CJK, cirílico, árabe, hebreo y demás), `U+FFFD`, mojibake de UTF-8 leído como latin-1, BOM, bytes nulos, saltos de línea mezclados y ficheros sin salto final.
+
+### Decisiones
+- **El fallo que busca es invisible al linter.** Un fichero puede compilar, pasar los tests y llevar tres palabras en otro idioma dentro de una frase en español: no hay error de sintaxis que lo delate. Ha pasado cuatro veces en este proyecto, y la última en el informe del paso f.
+- **La lista de permitidos justifica cada símbolo.** Flechas, `§`, `°`, `❤`, `«»` y la raya larga se usan a propósito, y cada entrada dice por qué se acepta. Una entrada sin motivo no tiene sitio en esa lista, para que ampliarla sea una decisión visible.
+- **Se recorre carácter a carácter y no con una expresión regular**, porque los rangos se declaran como números: escritos en un literal quedarían partidos entre varias líneas y un rango mal escrito no se vería hasta que falla.
+- **El script se autoexcluye del mojibake.** Construye las secuencias con `String.fromCharCode` en vez de escribirlas como literales, porque el fichero contiene la lista y se detectaría a sí mismo.
+
+### Verificación
+- Comprobado con un fichero temporal que mezcla ideograma, cirílico y hebreo: los tres se detectan con su bloque y su número.
+- Los comentarios corregidos en el paso f (`quienchoosable`, `discovered`, `throwing`) salen limpios.
+
+---
+
 ## Paso f — Galería
 
 ### Añadido
@@ -28,14 +45,22 @@ Todas las novedades de esta fase. Las secciones se rellenan **al terminar cada p
 - **La imagen del mosaico es decorativa** (`alt=""`), porque el enlace ya lleva el título y la fecha en su `aria-label`. Con las dos, un lector de pantalla lo repetiría dos veces.
 - **Debajo de cada foto hay un degradado de la categoría** y la imagen se apaga con `onError` si no carga. Las fotos del seed son URLs remotas y sin conexión habría huecos rotos y los iconos del navegador.
 - **La rejilla lleva `role="list"` explícito** en el `ul`, porque Safari deja de anunciar los roles de lista cuando el contenedor es un `div` con `display: grid`.
-- **Erratas en comentarios, no visibles en pantalla:** `Separate de` en `src/types/models.js`, `quienchoosable` en `src/utils/imagen.js`, y `discovered`/`throwing` en `src/utils/categorias.js`. Se corrigieron al leer el código; ninguna era texto de interfaz.
+- **Erratas en comentarios, no visibles en pantalla:** `Separate de` en `src/types/models.js`, `quienchoosable` en `src/utils/imagen.js`, y `discovered`/`throwing` en `src/utils/categorias.js`. Se corrigieron al leer el código; ninguna era texto de interfaz. Un escaneo automático de caracteres no latinos confirma que no queda ninguna más.
+
+### Decisiones revisadas
+- **`?evento=` manda sobre `?anio=`.** Quien llega desde "Ver en la galería" de un detalle quiere ver esa foto; si el año del filtro no es el suyo, se aplica el de la foto en vez de esconderla. Se ajusta en memoria (`resolverAnio()`) y no reescribiendo la URL, para que el botón "atrás" no devuelva al filtro viejo. Con un `?evento=` desconocido el filtro se respeta, porque un enlace antiguo no debe borrar lo que la persona había elegido.
+- **Las fotos remotas del seed se quedan.** Son datos de ejemplo, y el degradado de reserva ya evita el icono roto sin conexión. En Fase 2 desaparece el problema de fondo, pero no el degradado: una URL firmada caducada falla igual. Anotado en `docs/MIGRACION_SUPABASE.md`.
+
+### Correcciones de las pruebas
+- **Dos comprobaciones del seed dependían del mes literal.** Escribían `'2026-09'` y `'2026-10'` en vez de derivar el mes del reloj, así que dejaban de ser ciertas en cuanto cambiaba el mes y el fallo se habría leído como un problema del seed. Ahora los meses se calculan desde la fecha real, que es justo lo que comprueban: que el seed ancla al mes en curso y al siguiente.
+- **El día 1 del mes se construye con números**, no con `new Date('YYYY-MM-01')`: esa cadena es UTC y en un huso horario negativo cae en el mes anterior, con lo que la cuadrícula se construye del mes equivocado y ninguna celda queda marcada como del mes visible. Es el mismo fallo que ya estaba documentado en el README para las fechas del calendario.
 - **El arnés gana `disparar(el, tipo)`**: dispara un evento que no viene del ratón ni del teclado, como el `error` de una imagen que no carga. Va dentro de `act` porque provoca un cambio de estado, y sin el envoltorio la comprobación mediría el estado anterior.
 
 ### Verificación
-- `npm test`: 722 comprobaciones, 0 fallos, estable en 3 pasadas seguidas.
+- `npm test`: 737 comprobaciones, 0 fallos, estable en 3 pasadas seguidas.
 - `npm run lint`: 0 avisos y 0 errores.
 - `npm run build`: correcto.
-- Codificación revisada en los 67 ficheros del proyecto, incluidos los `.md` tocados.
+- Codificación revisada con `npm run auditar-codificacion`: 67 ficheros de texto del proyecto, incluidos los `.md` tocados, 0 problemas.
 - La derivación se prueba **sin montar nada**, porque es pura: orden descendente entre años, la hora a igualdad de día, el evento sin hora al final, y el descarte de `foto: null`, cadena vacía, falta de `id` y falta de `fecha`.
 - La coherencia entre foto y recuerdo se comprueba borrando un evento: su foto desaparece de la galería y las demás siguen ahí.
 - Pendiente de comprobación manual: el mosaico con fotos reales de la pareja, la fidelidad visual en escritorio y móvil, el comportamiento de la reserva cuando falla la red, y si el filtro de año se relaciona bien con el scroll.

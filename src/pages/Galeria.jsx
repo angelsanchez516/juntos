@@ -38,6 +38,7 @@ import {
   extraerFotos,
   filtrarPorAnio,
   agruparFotosPorMes,
+  resolverAnio,
   textoRecuento,
 } from '../utils/galeria';
 import MosaicoGaleria from '../components/galeria/MosaicoGaleria';
@@ -101,11 +102,23 @@ export default function Galeria() {
 
   // `?anio=` se normaliza al leerlo, no al escribirlo: una URL con `?anio=20`
   // se trata como "sin filtro" en lugar de dejar el mosaico vacío sin aviso.
-  const anio = anioValido(parametros.get('anio'));
+  const anioPedido = anioValido(parametros.get('anio'));
   const eventoResaltado = parametros.get('evento');
 
   const fotos = useMemo(() => extraerFotos(eventos), [eventos]);
   const anios = useMemo(() => aniosConFotos(fotos), [fotos]);
+
+  /*
+   * `?evento=` manda sobre `?anio=`. Quien llega desde "Ver en la galería" de un
+   * detalle quiere ver esa foto, así que si el año del filtro no es el suyo se
+   * aplica el de la foto. El ajuste se deriva en memoria y no reescribiendo la
+   * URL, para que el botón "atrás" no devuelva al filtro viejo.
+   */
+  const anio = useMemo(
+    () => resolverAnio(fotos, anioPedido, eventoResaltado),
+    [fotos, anioPedido, eventoResaltado],
+  );
+
   const fotosVisibles = useMemo(() => filtrarPorAnio(fotos, anio), [fotos, anio]);
   const grupos = useMemo(() => agruparFotosPorMes(fotosVisibles), [fotosVisibles]);
 

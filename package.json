@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "node test-datos.mjs"
+    "test": "node test-datos.mjs",
+    "auditar-codificacion": "node scripts/auditar-codificacion.mjs"
   },
   "dependencies": {
     "date-fns": "^4.4.0",

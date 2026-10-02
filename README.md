@@ -94,15 +94,42 @@ calendario (incluidos febrero de 2027 con 4 filas y agosto de 2026 con 6), y la
 interacción real del modal y del formulario: foco atrapado con Tab y Mayús+Tab,
 foco devuelto al cerrarlo, Escape, doble envío bloqueado, aviso de cambios sin
 guardar, borrado confirmado y su navegación. La galería se comprueba con su
-mosaico, su filtro de año, sus cuatro estados y el degradado de reserva cuando
-una foto remota no carga. **722 comprobaciones.**
+mosaico, su filtro de año, sus cuatro estados, el degradado de reserva cuando
+una foto remota no carga y el reparto de `?evento=` sobre `?anio=`.
+**737 comprobaciones.**
+
+## Auditoría de codificación
+
+```bash
+npm run auditar-codificacion
+```
+
+Escanea `src/`, `docs/`, `scripts/`, la raíz y los tests, y falla con código 1 si
+encuentra caracteres fuera del alfabeto latino y de los signos del español
+(bloques CJK, cirílico, árabe, hebreo y demás), el carácter de reemplazo
+`U+FFFD`, mojibake del tipo UTF-8 leído como latin-1, un BOM, bytes nulos,
+saltos de línea mezclados o un fichero sin salto final.
+
+Existe porque **el linter no puede ver este fallo**. Un fichero puede compilar,
+pasar los 737 tests y llevar tres palabras en chino en medio de una frase en
+español: no hay error de sintaxis que lo delate. Ha pasado cuatro veces en este
+proyecto. Los símbolos que sí se usan a propósito (flechas, `§`, `°`, `❤`) están
+en la lista de permitidos del script, cada uno con su motivo, para que ampliar la
+excepción sea una decisión visible y no un descuido.
+
+El escaneo recorre carácter a carácter en lugar de usar una expresión regular
+porque los rangos se declaran como números: escritos en un literal quedarían
+partidos en varias líneas y un rango mal escrito no se vería hasta que falla.
+
+Conviene ejecutarlo antes de cerrar cada paso, junto a `npm test`,
+`npm run lint` y `npm run build`.
 
 ## Notas importantes
 - **Login simulado:** la pantalla `/bienvenida` tiene un botón "Comenzar" que no realiza autenticación real. Esto queda marcado con `SEGURIDAD:` y `TODO-FASE2 (SEGURIDAD)`.
 - **localStorage no es seguro:** se documenta explícitamente en `docs/SEGURIDAD.md`. En Fase 2 pasará al backend (Supabase) con autorización por pareja (RLS).
 - **Colores de categoría:** se aplican con `style={{ backgroundColor }}` (hex desde `src/utils/categorias.js`). Esto evita el problema de clases dinámicas que Tailwind purga en tiempo de compilación. El texto de las cinco categorías pasa contraste AA sobre su fondo; los colores principales sobre `#F7FAFC` no llegan a 3:1 en `viaje`, `cumpleanos` y `otro`, así que el significado no debe depender solo del color.
 - **Calendario:** se construye a mano con `date-fns` (locale `es`), ignorando la pequeña duplicación visible en el mockup.
-- **Fotos:** las del seed usan URLs remotas (`picsum.photos`). Las que sube la persona se recomprimen en el cliente antes de guardarse como `base64`, y ese canvas es lo que elimina los metadatos EXIF/GPS. En Fase 2 van a un bucket privado de Supabase Storage.
+- **Fotos:** las del seed usan URLs remotas (`picsum.photos`), y son datos de ejemplo a propósito. Las que sube la persona se recomprimen en el cliente antes de guardarse como `base64`, y ese canvas es lo que elimina los metadatos EXIF/GPS. En Fase 2 van a un bucket privado de Supabase Storage. El degradado de reserva se mantiene en las dos fases: con una URL firmada caducada el fallo de carga es el mismo que con una imagen bloqueada.
 - **Sin smoke test en navegador todavía:** las pruebas cubren el DOM y la lógica, pero falta la comprobación visual en escritorio y móvil. La persona usuaria no puede ejecutar la app, así que sigue pendiente.
 
 ## Licencia

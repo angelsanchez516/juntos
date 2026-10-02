@@ -266,6 +266,26 @@ Mientras tanto, la decisión menos costosa es **mantener `foto` en la respuesta 
 tocar `extraerFotos()`. Si más adelante se admite más de una foto por evento, el
 cambio se acota a `src/utils/galeria.js` y a un service nuevo.
 
+### Nota: las fotos de ejemplo y por qué el degradado de reserva importa más de lo que parece
+
+En Fase 1 las fotos del seed apuntan a `picsum.photos`, un servicio remoto. Es
+una decisión consciente y no un descuido: son **datos de ejemplo**, no contenido
+de la pareja, y una URL estable por semilla hace que el mockup se vea igual en
+cada recarga. Para cuando exista almacenamiento real desaparece el problema de
+fondo: la foto será un objeto privado en Storage y no una petición a un tercero.
+
+Lo que no desaparece es el **degradado de reserva**, y conviene no borrarlo al
+migrar. `src/components/galeria/FotoGaleria.jsx` monta la imagen encima del
+degradado de la categoría y la apaga en `onError`, de forma que un fallo de
+carga deja el degradado con su icono en vez de un icono de imagen rota. Con el
+seed ese camino se recorre siempre que se abre la galería sin conexión o con las
+imágenes remotas bloqueadas, así que es el estado que más se va a ver en el
+mockup.
+
+Con Storage pasa a ser otra cosa: una **URL firmada caducada** produce el mismo
+error que una foto que no carga. Ese es el motivo de que el degradado se mantenga
+aunque en Fase 2 no haya ninguna URL rota, y no un resto del diseño del seed.
+
 
 ---
 

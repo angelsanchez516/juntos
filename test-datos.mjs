@@ -617,21 +617,48 @@ comprobar('7 días en la cabecera', ca.DIAS_ENCABEZADO_CORTOS.length === 7);
 comprobar('son inmutables', Object.isFrozen(ca.DIAS_ENCABEZADO) && Object.isFrozen(ca.DIAS_ENCABEZADO_CORTOS));
 
 console.log('\n== Eventos del seed caben en su mes ==');
-// Con hoy = 30 de septiembre casi todo el seed del mes actual ya pasó, así que
-// los próximos eventos tienen que caer en meses siguientes y ser visibles al
-// navegar con las flechas.
+/*
+ * El seed se ancla al mes en curso con `diaDelMes()`, así que los meses se
+ * calculan aquí a partir de la fecha real y no se escriben literales. Escribir
+ * '2026-09' y '2026-10' aquí hacía que estas comprobaciones dejaran de tener
+ * sentido en cuanto cambiaba el mes, y el fallo se habría leído como un problema
+ * del seed cuando en realidad estaba la comprobación.
+ *
+ * `HOY` de arriba es una fecha fija a propósito, para que el renderizado de la
+ * cuadrícula sea reproducible. Este bloque usa el reloj de verdad porque su
+ * pregunta es justamente "qué meses cubre el seed hoy".
+ */
 await ev.resetEventos();
 const sembrados = await ev.getEventos();
-const enSeptiembre = sembrados.filter((e) => e.fecha.startsWith('2026-09'));
-const enOctubre = sembrados.filter((e) => e.fecha.startsWith('2026-10'));
-comprobar('el seed cubre el mes actual', enSeptiembre.length > 0, `septiembre=${enSeptiembre.length}`);
-comprobar('y también el mes siguiente', enOctubre.length > 0, `octubre=${enOctubre.length}`);
-comprobar('octubre tiene los días 5, 12 y 15', ['2026-10-05', '2026-10-12', '2026-10-15'].every((f) => enOctubre.some((e) => e.fecha === f)));
-const cuadrOct = ca.construirCuadricula(new Date(2026, 9, 1), HOY);
-const indiceOct = fe.agruparPorFecha(enOctubre);
-const octConDatos = ca.asignarEventos(cuadrOct, indiceOct, '2026-10-05');
-comprobar('los eventos de octubre caen en celdas del mes', octConDatos.celdas.filter((c) => c.enMes && c.eventos.length > 0).length === 3);
-comprobar('octubre muestra el 5 de octubre', octConDatos.celdas.find((c) => c.fechaISO === '2026-10-05').eventos.length > 0);
+const mesEnCurso = ca.mesAParametro(new Date());
+const mesSiguiente = ca.mesAParametro(ca.moverMesCalendario(new Date(), 1));
+const enMesEnCurso = sembrados.filter((e) => e.fecha.startsWith(mesEnCurso));
+const enMesSiguiente = sembrados.filter((e) => e.fecha.startsWith(mesSiguiente));
+comprobar('el seed cubre el mes actual', enMesEnCurso.length > 0, `${mesEnCurso}=${enMesEnCurso.length}`);
+comprobar('y también el mes siguiente', enMesSiguiente.length > 0, `${mesSiguiente}=${enMesSiguiente.length}`);
+comprobar(
+  'el mes siguiente trae los días 5, 12 y 15',
+  [5, 12, 15].every((dia) => enMesSiguiente.some((e) => e.fecha === `${mesSiguiente}-${String(dia).padStart(2, '0')}`)),
+  enMesSiguiente.map((e) => e.fecha).join(' '),
+);
+// El día 1 se construye con números y no con una cadena `YYYY-MM-01`: `new
+// Date('2026-11-01')` se interpreta como medianoche UTC y en un huso horario
+// negativo cae en el mes anterior, con lo que la cuadrícula se construye del
+// mes equivocado y ninguna celda queda marcada como del mes visible.
+const [anioSiguiente, mesSiguienteNum] = mesSiguiente.split('-').map(Number);
+const cuadrSiguiente = ca.construirCuadricula(
+  new Date(anioSiguiente, mesSiguienteNum - 1, 1),
+  HOY,
+);
+const indiceSiguiente = fe.agruparPorFecha(enMesSiguiente);
+const diaCinco = `${mesSiguiente}-05`;
+const siguienteConDatos = ca.asignarEventos(cuadrSiguiente, indiceSiguiente, diaCinco);
+comprobar(
+  'los tres días del mes siguiente caen en celdas del mes',
+  siguienteConDatos.celdas.filter((c) => c.enMes && c.eventos.length > 0).length === 3,
+  `${siguienteConDatos.celdas.filter((c) => c.enMes && c.eventos.length > 0).length} celdas con datos`,
+);
+comprobar('y la cuadrícula muestra el día 5', siguienteConDatos.celdas.find((c) => c.fechaISO === diaCinco).eventos.length > 0, diaCinco);
 comprobar('ningún próximo evento está en el pasado', (await ev.getEventos()).filter((e) => e.fecha >= fe.hoyISO()).length > 0);
 
 /*
@@ -2520,6 +2547,59 @@ const appDespuesDeBorrar = await montarGaleria();
 comprobar('tras borrar un recuerdo su foto ya no está', !celdas(appDespuesDeBorrar.raiz).some((a) => a.getAttribute('href') === `/evento/${encodeURIComponent(eventoABorrar.id)}`), celdas(appDespuesDeBorrar.raiz).map((a) => a.getAttribute('href')).join('|'));
 comprobar('las demás fotos siguen ahí', celdas(appDespuesDeBorrar.raiz).length === eventosAntesDeBorrar.length - 1, String(celdas(appDespuesDeBorrar.raiz).length));
 await appDespuesDeBorrar.desmontar();
+await ev.resetEventos();
+
+console.log('\n== Paso f: ?evento= manda sobre ?anio= ==');
+/*
+ * Quien llega desde "Ver en la galería" de un detalle quiere ver esa foto. Si la
+ * URL además trae un `?anio=` de otro tiempo, gana la foto: el filtro se ajusta
+ * al año de la foto en vez de esconderla. Y no hace falta avisar de nada, porque
+ * la foto resaltada ya dice dónde se está.
+ */
+const fotosParaElChoque = ga.extraerFotos([
+  { id: 'ev-26', titulo: 'De 2026', fecha: '2026-03-02', hora: '', categoria: 'cita', foto: 'https://ejemplo.test/26.jpg' },
+  { id: 'ev-25', titulo: 'De 2025', fecha: '2025-08-02', hora: '', categoria: 'cita', foto: 'https://ejemplo.test/25.jpg' },
+]);
+comprobar('sin evento manda el año pedido', ga.resolverAnio(fotosParaElChoque, '2025', null) === '2025', String(ga.resolverAnio(fotosParaElChoque, '2025', null)));
+comprobar('sin año y sin evento no se filtra', ga.resolverAnio(fotosParaElChoque, null, null) === null, String(ga.resolverAnio(fotosParaElChoque, null, null)));
+comprobar('la foto se impone al filtro de otro año', ga.resolverAnio(fotosParaElChoque, '2025', 'ev-26') === '2026', String(ga.resolverAnio(fotosParaElChoque, '2025', 'ev-26')));
+comprobar('y también cuando no hay filtro puesto', ga.resolverAnio(fotosParaElChoque, null, 'ev-25') === '2025', String(ga.resolverAnio(fotosParaElChoque, null, 'ev-25')));
+comprobar('coincidir no cambia nada', ga.resolverAnio(fotosParaElChoque, '2026', 'ev-26') === '2026', String(ga.resolverAnio(fotosParaElChoque, '2026', 'ev-26')));
+comprobar('un evento desconocido respeta el filtro', ga.resolverAnio(fotosParaElChoque, '2025', 'no-existe') === '2025', String(ga.resolverAnio(fotosParaElChoque, '2025', 'no-existe')));
+comprobar('un evento vacío no cuenta como evento', ga.resolverAnio(fotosParaElChoque, '2025', '') === '2025', String(ga.resolverAnio(fotosParaElChoque, '2025', '')));
+comprobar('sin fotos no se inventa un año', ga.resolverAnio([], '2025', 'ev-26') === '2025', String(ga.resolverAnio([], '2025', 'ev-26')));
+comprobar('una lista que no es lista no rompe', ga.resolverAnio(null, '2025', 'ev-26') === '2025', String(ga.resolverAnio(null, '2025', 'ev-26')));
+
+// Y lo mismo con la página montada, que es donde se vería si el ajuste se
+// escribiera en la URL en vez de derivarse en memoria.
+await ev.resetEventos();
+const eventosDeDosAniosParaChoque = [
+  ...(await ev.getEventos()),
+  {
+    id: 'ev-del-2025',
+    titulo: 'Otoño en el campo',
+    descripcion: '',
+    fecha: '2025-10-05',
+    hora: '',
+    categoria: 'cita',
+    foto: 'https://ejemplo.test/campo.jpg',
+    lugar: '',
+  },
+];
+escribirEventos(eventosDeDosAniosParaChoque);
+const appChoque = await montarGaleria(`?anio=2025&evento=${encodeURIComponent(conFoto[0].id)}`);
+const fotosVisiblesTrasElChoque = celdas(appChoque.raiz).length;
+comprobar('la foto del evento gana y se ve', appChoque.raiz.querySelector('a[aria-current="true"]') !== null, 'nada resaltado');
+comprobar('el filtro se ajusta al año de esa foto', fotosVisiblesTrasElChoque === ga.filtrarPorAnio(ga.extraerFotos(eventosDeDosAniosParaChoque), conFoto[0].fecha.slice(0, 4)).length, `${fotosVisiblesTrasElChoque} fotos visibles`);
+comprobar('la URL no se reescribe por el ajuste', ecoUrl().includes(`anio=2025`) && ecoUrl().includes(`evento=${conFoto[0].id}`), ecoUrl());
+comprobar('el filtro de años marca el año de la foto', document.querySelector('nav[aria-label="Filtrar la galería por año"] a[aria-current="true"]')?.textContent.trim() === conFoto[0].fecha.slice(0, 4), document.querySelector('nav[aria-label="Filtrar la galería por año"] a[aria-current="true"]')?.textContent ?? '(sin marcar)');
+await appChoque.desmontar();
+
+// Un id que no existe deja el filtro como estaba, en vez de quitarlo.
+const appChoqueInexistente = await montarGaleria('?anio=2025&evento=no-existe');
+comprobar('un evento inexistente no toca el filtro', celdas(appChoqueInexistente.raiz).length === ga.filtrarPorAnio(ga.extraerFotos(eventosDeDosAniosParaChoque), '2025').length, String(celdas(appChoqueInexistente.raiz).length));
+comprobar('y el filtro sigue en la URL', ecoUrl().includes('anio=2025'), ecoUrl());
+await appChoqueInexistente.desmontar();
 await ev.resetEventos();
 
 

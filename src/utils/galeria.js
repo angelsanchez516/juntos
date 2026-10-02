@@ -206,6 +206,62 @@ export function anioValido(valor) {
 }
 
 /**
+ * Decide qué año se aplica, con `?evento=` por encima de `?anio=`.
+ *
+ * Quien llega desde "Ver en la galería" de un detalle quiere ver *esa* foto, no
+ * un filtro viejo que viniera pegado en la URL. Por eso, si el
+ * `?evento=` apunta a una foto que existe, el año passa a ser el de esa foto: se
+ * ignora el `?anio=` en vez de dejar el mosaico filtrado sin la foto que se vino
+ * a ver. No hace falta avisar de nada, porque la foto resaltada es la prueba de
+ * que el filtro se ha corregido.
+ *
+ * El ajuste se hace **derivando** el año de la foto en vez de reescribir la URL.
+ * La URL es lo que se puede compartir o pulsar "atrás": si se modificara en
+ * efecto, volver atrás sacaría de nuevo el filtro viejo y saltaría el mismo
+ * ajuste otra vez.
+ *
+ * Si el `?evento=` no corresponde a ninguna foto visible, no se toca el año: un
+ * id desconocido (un recuerdo borrado, un enlace antiguo) se comporta como si
+ * no estuviera, y el filtro elegido se respeta.
+ *
+ * @param {ReadonlyArray<FotoGaleria>} fotos Fotos de toda la galería, sin
+ *   filtrar. Es imprescindible la lista entera: la foto puede ser de un año que
+ *   el filtro activo dejaría fuera.
+ * @param {string|null|undefined} anio Año pedido por la URL, ya normalizado con
+ *   {@link anioValido}.
+ * @param {string|null|undefined} eventoId Id de `?evento=`.
+ * @returns {string|null} Año a aplicar, o `null` para ver todas las fotos.
+ * @example
+ * resolverAnio(fotos, '2025', 'ev-de-2026'); // '2026'
+ * resolverAnio(fotos, '2025', 'no-existe');  // '2025'
+ * resolverAnio(fotos, null, null);           // null
+ */
+export function resolverAnio(fotos, anio, eventoId) {
+  if (typeof eventoId !== 'string' || eventoId === '') return anio ?? null;
+
+  const foto = (Array.isArray(fotos) ? fotos : []).find((f) => f?.id === eventoId);
+  if (!foto) return anio ?? null;
+
+  const anioDeLaFoto = resolverAnioDeFoto(foto);
+  return anioDeLaFoto ?? anio ?? null;
+}
+
+/**
+ * Saca el año de una foto, o `null` si su fecha no es utilizable.
+ *
+ * Se separa de {@link resolverAnio} porque la foto puede venir con una fecha
+ * escrita a mano o corrupta, y en ese caso no se debe inventar un año que luego
+ * no coincide con ninguna foto y acabe dejando el mosaico vacío.
+ *
+ * @param {FotoGaleria} foto Foto de la galería.
+ * @returns {string|null} Año `YYYY`, o `null`.
+ */
+function resolverAnioDeFoto(foto) {
+  const anio = String(foto?.fecha ?? '').slice(0, 4);
+  return /^\d{4}$/.test(anio) ? anio : null;
+}
+
+/**
  * Cuenta cuántas fotos hay, para el encabezado de la página.
  *
  * El plural tiene que concordar: "1 foto" y "3 fotos". Es un detalle pequeño,

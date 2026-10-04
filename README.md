@@ -22,7 +22,10 @@
 - [x] **Planeador de citas** (paso e): alta, edición y borrado de ideas propias, favoritas con actualización optimista, conversión a evento y filtros por categoría y favoritas en la URL
 - [x] **Origen de las ideas**: `IdeaCita.origen` distingue las del seed de las de la pareja, y solo estas se pueden editar o borrar
 - [x] **Galería** (paso f): mosaico responsive agrupado por mes, derivado de los eventos, con filtro de año en la URL y enlace a cada recuerdo
-- [ ] Pulido final y vistas Semana/Día (paso g)
+- [x] **Vistas Semana y Día** (paso g): conmutador con la vista en la URL (`?vista=semana|dia&fecha=YYYY-MM-DD`), navegación con flechas y "Hoy", y panel lateral que sigue al día resaltado
+- [x] **Configuración** (paso g): recuentos, espacio ocupado, claves con su versión y "Restablecer datos" con confirmación, que conserva la sesión
+- [x] **Reloj inyectable** (`src/utils/reloj.js`) y suites con fecha simulada para octubre, febrero y diciembre
+- [ ] Pulido final y paso h
 
 ## Requisitos
 - Node.js 20+ (probado con v24.15.0)
@@ -61,6 +64,8 @@ Página/Componente  →  Hook  →  Service  →  localStorage
 - **Validación en dos capas:** el formulario da el feedback, el service rechaza. En Fase 2 la base de datos replicará las mismas reglas.
 - **Fotos en dos fases:** primero el tipo y el tamaño que declara el navegador, y después los magic bytes reales. Sin la segunda fase, un SVG renombrado a `.jpg` pasaba el filtro. La recompresión con canvas es también lo que elimina EXIF y GPS.
 - **IDs con `crypto.randomUUID()`:** UUID v4, compatible con las claves de Supabase e imposible de adivinar.
+- **Un solo reloj:** `src/utils/reloj.js` es lo único que responde a "¿qué día es hoy?". El seed, las comparaciones de fechas y la frase del día leen de ahí, así que la suite puede fijar la fecha sin cambiar la firma de ninguna función de producción.
+- **Restablecer datos no cierra la sesión:** `resetDatos()` borra las claves de datos y conserva `juntos:v1:sesion`. La sesión es el único dato que la app no puede recrear, y en esta fase no hay forma de recuperarla.
 - **Las ideas del seed no se editan ni se borran:** `IdeaCita.origen` dice de dónde viene cada una, y solo las de la pareja tienen botones de editar y borrar. Sin ese campo habría que reconocerlas por sus ids o por su contenido, que se rompe en cuanto cambia el seed.
 - **La cuadrícula se calcula fuera de React**, en funciones puras de `src/utils/calendario.js`, para poder testearla sin montar componentes.
 - **La galería es una vista, no una tabla:** sus fotos son `Evento.foto`, derivadas en `src/utils/galeria.js`. No hay clave de almacenamiento ni service nuevos, y no existe el estado en el que una foto y su recuerdo se desincronicen. Si en Supabase las fotos pasan a ser una tabla aparte, esto deja de ser derivable.
@@ -95,8 +100,38 @@ interacción real del modal y del formulario: foco atrapado con Tab y Mayús+Tab
 foco devuelto al cerrarlo, Escape, doble envío bloqueado, aviso de cambios sin
 guardar, borrado confirmado y su navegación. La galería se comprueba con su
 mosaico, su filtro de año, sus cuatro estados, el degradado de reserva cuando
-una foto remota no carga y el reparto de `?evento=` sobre `?anio=`.
-**737 comprobaciones.**
+una foto remota no carga y el reparto de `?evento=` sobre `?anio=`. Las tres
+vistas del calendario se montan con DOM real y se comprueban por pulsación: el
+conmutador escribe en la URL, las flechas mueven el período de cada vista, "Hoy"
+vuelve al día en curso, una URL manipulada cae en algo válido, el cambio de mes y
+de año no rompe títulos ni índices de día, y la configuración pregunta antes de
+borrar con un único diálogo y no borra nada si se cancela.
+**923 comprobaciones.**
+
+Lo que la suite no alcanza está en
+[`docs/VERIFICACION_MANUAL.md`](docs/VERIFICACION_MANUAL.md): fidelidad con el
+mockup, ancho de la rejilla de la semana, scroll horizontal, EXIF y GPS, `dvh`
+con el teclado abierto, y contraste. Las casillas están vacías a propósito.
+
+La suite acepta una fecha para correr como si fuera otro día:
+
+```bash
+node test-datos.mjs 2027-02-28
+npm run test:octubre    # 2 de octubre de 2026
+npm run test:febrero    # 28 de febrero de 2027
+npm run test:diciembre  # 31 de diciembre de 2026
+```
+
+Las tres fechas están elegidas a propósito: octubre es el mes del seed, febrero
+tiene cuatro semanas y diciembre cae en un mes de31 días que hace saltar la
+cuadrícula. Con fechas literales en las pruebas, en febrero y diciembre no
+habría eventos que encontrar y la suite pasaría por falta de datos en vez de por
+funcionamiento.
+
+Y para lo que no se puede automatizar desde aquí: **no hay smoke test en
+navegador**. La cobertura llega al DOM real con jsdom, pero no al ancho de la
+ventana, ni al desplazamiento real, ni a la composición de fuentes. Sigue
+pendiente.
 
 ## Auditoría de codificación
 
@@ -111,8 +146,8 @@ encuentra caracteres fuera del alfabeto latino y de los signos del español
 saltos de línea mezclados o un fichero sin salto final.
 
 Existe porque **el linter no puede ver este fallo**. Un fichero puede compilar,
-pasar los 737 tests y llevar tres palabras en chino en medio de una frase en
-español: no hay error de sintaxis que lo delate. Ha pasado cuatro veces en este
+pasar los 923 tests y llevar tres palabras en chino en medio de una frase en
+español: no hay error de sintaxis que lo delate. Ha pasado siete veces en este
 proyecto. Los símbolos que sí se usan a propósito (flechas, `§`, `°`, `❤`) están
 en la lista de permitidos del script, cada uno con su motivo, para que ampliar la
 excepción sea una decisión visible y no un descuido.

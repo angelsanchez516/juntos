@@ -140,12 +140,42 @@ Armazón de la aplicación. Elige sidebar (≥1024px) o header+bottom nav con `u
 
 ## Páginas (`src/pages/`)
 - `Inicio`: banner con foto, saludo, frase del día, contador de recuerdos, "El más próximo" y próximos eventos. Usa `useEventos()`.
-- `Calendario`: mes completo. Cuadrícula del mes, navegación, leyenda de categorías y próximos eventos. Guarda el mes en `?mes=AAAA-MM`. Abre `EventoFormModal` en alta con la fecha del día preseleccionada. En escritorio la lista del día vive en un `aside` sticky a la derecha, para que se vea sin tener que desplazarse; en móvil va debajo de la cuadrícula.
+- `Calendario`: las tres vistas del calendario, con un conmutador que vive en la URL. Cuadrícula del mes, navegación, leyenda de categorías y próximos eventos. El mes se guarda en `?mes=AAAA-MM`; la semana y el día, en `?vista=semana|dia&fecha=AAAA-MM-DD`. Ver "La vista vive en la URL" más abajo. Abre `EventoFormModal` en alta con la fecha del día resaltado. En escritorio la lista del día vive en un `aside` con `sticky` a la derecha, para que se vea sin tener que desplazarse; en móvil va debajo de la cuadrícula. En la vista de día no se pinta el panel lateral, porque `CalendarioDia` ya lista los eventos.
 - `EventoDetalle`: ficha de un evento con foto, categoría, fecha, hora, lugar, descripción y enlace a la galería. Abre la edición y el borrado con confirmación, y vuelve a `?mes=` al terminar. Un id mal formado y un id inexistente dan la misma pantalla de "no encontrado", y en ninguno de los dos casos se muestra el id.
 - `Planeador`: lista de ideas de cita con alta, edición, borrado, favoritas y conversión a evento. Los filtros de categoría y de favoritas viven en la URL (`?categoria=…`, `?favoritas=1`), no en estado local, para que el filtro se pueda compartir y el botón "atrás" del navegador funcione. Ver "Componentes de citas" más abajo.
 - `Galeria`: mosaico de las fotos de los eventos, agrupado por mes y con un filtro de año. No guarda fotos propias: deriva de `useEventos()` con `extraerFotos()`, así que al borrar un recuerdo su foto desaparece sin borrar nada más. El año vive en la URL (`?anio=AAAA`) y `?evento=<id>` resalta la foto que se abrió desde el detalle. Con cuatro estados distintos: cargando, error con "Reintentar", vacío con salida al planeador, y mosaico. Ver "Componentes de galería" más abajo.
-- `Momentos`, `Configuracion`: marcadores de posición.
-- `Bienvenida`: fuera del layout, con el botón "Comenzar" (login simulado).
+- `Configuracion`: recuentos de eventos e ideas, espacio aproximado ocupado, lista de claves con su versión, y "Restablecer datos" con confirmación. Ver "Configuración" más abajo.
+- `Momentos`: marcador de posición.
+- `Bienvenida`: fuera del layout, con el botón "Comenzar" (acceso simulado, no guarda sesión).
+
+## La vista del calendario vive en la URL
+
+Las tres vistas comparten la página y el conmutador, y cambian de estado con `?` en la dirección:
+
+| Vista | Parámetros | Cuadrícula |
+|---|---|---|
+| Mes | `?mes=AAAA-MM` | `construirCuadricula` |
+| Semana | `?vista=semana&fecha=AAAA-MM-DD` | `construirSemana` |
+| Día | `?vista=dia&fecha=AAAA-MM-DD` | `construirDia` |
+
+- **El conmutador son `Link`, no botones.** Con `button` y estado propio, el botón "Atrás" del navegador y un enlace recibido por WhatsApp no funcionarían sin código que los escuche. `aria-current="page"` marca la activa.
+- **`fechaDesdeParametro()` normaliza al leer.** Un `?vista=inventada` cae en el mes y un `?fecha=2026-10-99` cae en hoy, en vez de dejar la pantalla vacía sin explicación.
+- **Cambiar de vista conserva el día que se estaba mirando.** Al volver al mes se escribe `?mes=` con el mes del día anclado, no el mes en curso: quien estaba en noviembre y vuelve al mes espera ver noviembre. La excepción es el mes en curso, que se deja sin parámetros porque esa es la dirección que se comparte.
+- **Elegir un día no escribe en la URL.** Es mirar sus eventos, no moverse: si "Compartir" mandara a otro día, el enlace sería peor que no tenerlo. Moverse con las flechas sí escribe.
+- **La selección empieza vacía y el resaltado no.** Señalar el día de hoy al montar haría que la pantalla fuera distinta en cada apertura. El día resaltado sale de `elegirDiaResaltado`: el seleccionado si está en la vista, si no el primer día con eventos, si no el día 1 del mes.
+- **`elegirDiaResaltado` y `resaltarCuadricula` viven fuera del componente**, en el propio fichero de la página. Son reglas de la cuadrícula, no estado de React. Dentro del componente, el `useMemo` del resaltado y el que lo pintaba no se podían conservar: uno invalidaba al otro y podían acabar mostrando días distintos.
+
+## Configuración
+
+`Configuracion` era un marcador de posición y ahora muestra lo que la app guarda de verdad:
+
+- **Recuentos de eventos e ideas**, leídos de los services, no contados a mano sobre lo que hay pintado.
+- **Espacio aproximado**, con `tamanoAproximado()`, y la lista de claves con su versión. Las dos cosas salen de `listarClaves()`, que es lo único que hay: el navegador no expone el consumo real.
+- **La privacidad, por escrito.** Dice que los datos viven en este navegador y que no hay nube. Es la misma decisión de la pantalla de bienvenida, escrita donde se va a mirar cuando alguien se pregunta qué guarda la app.
+- **"Restablecer datos" pide confirmación** y avisa de que también borra las fotos. La confirmación es `role="alertdialog"`, y el foco inicial lo pone el `Modal` en el panel, no en un botón: el destructivo queda a un Tab de distancia. Detalle de qué se pierde en contenido del modal, no con `ConfirmarSalida`: ese componente trae su propio `alertdialog`, su propio título y sus propios botones, y puesto aquí habría dejado dos diálogos anidados con dos títulos distintos y cuatro botones para una sola decisión.
+- **El resultado se anuncia** con `role="status"`, para que quien usa lector de pantalla sepa si funcionó sin tener que buscar el texto.
+
+`resetDatos()` conserva la clave de sesión. Ver "Restablecer datos no es cerrar la sesión" en `docs/ARQUITECTURA.md`.
 
 ## Componentes de galería (`src/components/galeria/`)
 ### `MosaicoGaleria`
@@ -203,7 +233,7 @@ Un día. Envuelve el `button` del día y, superpuesto en la parte baja, el `butt
 **Por qué el "+N más" es hermano y no hijo del `button` del día:** no se puede anidar un `button` dentro de otro `button`; es HTML inválido, el interno no es alcanzable con el teclado y el lector de pantalla lo anuncia mal. Por eso el envoltorio es un `div` con `relative` y el "+N más" va posicionado encima. El botón del día deja hueco abajo con `pb` para que no se solapen.
 
 ### `EventosDelDia`
-Lista completa de los eventos de un día, con franja de categoría, hora, lugar y enlace al detalle. En móvil es la única forma de verlos, porque la celda solo muestra puntos de color. También es donde aterriza el "+N más" en escritorio.
+Lista completa de los eventos de un día, con franja de categoría, hora, lugar y enlace al detalle. En móvil es la única forma de verlos, porque la celda solo muestra puntos de color. También es donde aterriza el "+N más" en escritorio, y es la vista entera de `CalendarioDia`.
 
 | Prop | Tipo | Obligatoria | Por defecto | Descripción |
 |---|---|---|---|---|
@@ -211,6 +241,37 @@ Lista completa de los eventos de un día, con franja de categoría, hora, lugar 
 | `fechaISO` | `string` | Sí | — | Fecha `YYYY-MM-DD` del encabezado. |
 | `onAgregar` | `() => void` | No | — | Muestra "Agregar" para ese día. |
 | `compacto` | `boolean` | No | `false` | Ajusta el texto del botón. |
+
+### `CalendarioSemana`
+Siete columnas, una por día, con los eventos de cada día debajo de su fecha. No calcula fechas: recibe la semana ya hecha por `construirSemana` + `asignarEventos`.
+
+| Prop | Tipo | Obligatoria | Por defecto | Descripción |
+|---|---|---|---|---|
+| `cuadricula` | `Cuadricula` | Sí | — | Semana con los eventos ya asignados. |
+| `onSelectDia` | `(fechaISO) => void` | Sí | — | Elige un día. |
+| `onMoverSemana` | `(delta) => void` | Sí | — | Flechas. `delta` es `-1` o `1`. |
+| `onHoy` | `() => void` | Sí | — | Vuelve a la semana del día en curso. |
+| `hoyEnSemana` | `boolean` | No | `false` | Desactiva "Hoy" si ya se está en ella. |
+
+Tres decisiones que no son obvias:
+
+- **No reutiliza `CeldaDia`.** La celda del mes está hecha para una casilla pequeña: número arriba y dos franjas con la hora. En la vista semanal cada día tiene una columna entera, así que cabe el título del evento, y el texto es justo lo que hace útil la vista.
+- **La columna no es una acción; el botón va en la cabecera.** El `div` de la columna lleva `role="gridcell"` porque contiene un grupo de enlaces, y el `button` que elige el día está en la cabecera, que es lo que se pulsa para ver ese día entero.
+- **El nombre del día va en `aria-hidden`, con el nombre largo en `title`.** El `aria-label` del botón ya dice la fecha completa y cuántos eventos hay; repetir el nombre haría que un lector de pantalla oyera "miércoles" y después "14 de octubre, 1 evento". En su lugar el `title` aparece al pasar el ratón, y en móvil, donde solo cabe la inicial, queda la abreviatura.
+
+### `CalendarioDia`
+Un día con su navegación por días. Reutiliza `EventosDelDia`, así que no duplica la lista de eventos en un componente propio.
+
+| Prop | Tipo | Obligatoria | Por defecto | Descripción |
+|---|---|---|---|---|
+| `cuadricula` | `Cuadricula` | Sí | — | Día con los eventos ya asignados. |
+| `onMoverDia` | `(delta) => void` | Sí | — | Flechas. `delta` es `-1` o `1`. |
+| `onHoy` | `() => void` | Sí | — | Vuelve al día en curso. |
+| `esHoy` | `boolean` | No | `false` | Desactiva "Hoy" si el día visible es el de hoy. |
+
+- **`EventosDelDia` va con `compacto` desactivado.** En el calendario mensual se usaba la variante grande porque el panel salía bajo una rejilla ya apretada; aquí tiene todo el ancho.
+- **`capitalize` va en la clase y no en el texto.** La cadena de `construirDia` es minúscula ("miércoles 14 de octubre"), como manda el español, y la mayúscula inicial la pone el estilo.
+- **No lleva panel lateral en la página.** Los eventos ya están dentro, y repetirlos sería ver lo mismo dos veces en la misma pantalla.
 
 ## Componentes de eventos (`src/components/eventos/`)
 ### `ProximosEventos`
@@ -474,13 +535,24 @@ Todo el cálculo de la cuadrícula, fuera de React y por tanto testeable sin DOM
 | Export | Devuelve | Para qué |
 |---|---|---|
 | `construirCuadricula(mes, fechaHoy?)` | `Cuadricula` | Las semanas de un mes, de 4 a 6 filas. Función pura. |
+| `construirSemana(fecha, fechaHoy?)` | `Cuadricula` | Los 7 días de la semana que contiene esa fecha, de lunes a domingo. |
+| `construirDia(fecha, fechaHoy?)` | `Cuadricula` | Un solo día, como cuadrícula de una celda para no duplicar el pintado. |
 | `asignarEventos(cuadricula, indice, fechaISO?)` | `Cuadricula` | Pone los eventos en sus celdas y marca el día elegido. |
 | `etiquetaCelda(celda)` | `string` | `"14 de octubre, 3 eventos"`, con singular y plural. |
 | `eventosDe(cuadricula, fechaISO)` | `Evento[]` | Eventos de un día, para el panel de móvil. |
 | `mesDesdeParametro(valor, porDefecto?)` | `Date` | Interpreta `?mes=2026-10` sin `new Date(string)`. |
 | `mesAParametro(mes)` | `string` | Serializa a `AAAA-MM`. |
+| `fechaDesdeParametro(valor, porDefecto?)` | `Date` | Interpreta `?fecha=2026-10-14`, con vuelta a hoy si no es válida. |
+| `fechaAParametro(fecha)` | `string` | Serializa a `AAAA-MM-DD`. |
+| `vistaDesdeParametro(valor, porDefecto?)` | `string` | Interpreta `?vista=semana`, con vuelta a `mes` si no es válida. |
 | `moverMesCalendario(mes, delta)` | `Date` | Avanza o retrocede meses. |
+| `moverSemanaCalendario(fecha, delta)` | `Date` | Avanza o retrocede una semana, desde el lunes de la visible. |
+| `moverDiaCalendario(fecha, delta)` | `Date` | Avanza o retrocede un día. |
 | `mesDesde(fecha)` | `Date` | Normaliza al día 1 del mes. |
+| `aFechaLocal(fechaISO)` | `Date` | Fecha local desde `AAAA-MM-DD`, sin el cambio de día que hace `parseISO` con la zona horaria. |
+| `VISTA_MES` / `VISTA_SEMANA` / `VISTA_DIA` | `string` | Las tres claves de vista. |
+| `VISTAS` | `string[]` | Las tres, en el orden en que las pinta el conmutador. |
+| `ETIQUETAS_VISTA` | `Record<string,string>` | Texto visible de cada una: "Mes", "Semana", "Día". |
 | `INICIO_SEMANA` | `1` | Constante: la semana empieza en lunes. |
 | `MAX_EVENTOS_CELDA` | `2` | Eventos visibles por celda antes de colapsar. |
 | `MAX_EVENTOS_MOVIL` | `4` | Puntos de color por celda en móvil. |
@@ -495,8 +567,24 @@ const cuadricula = useMemo(
 
 **Por qué la cuadrícula tiene 4, 5 o 6 filas y no siempre 6:** se extiende solo hasta completar la última semana. Fevereiro de 2027 (empieza en lunes, 28 días) ocupa exactamente 4 filas; agosto de 2026 (empieza en sábado) ocupa 6. Fijar 6 siempre dejaría dos semanas vacías en la mitad de los meses. El alto de la rejilla cambia al navegar, pero ese salto cae por debajo del pliegue en móvil.
 
+**Por qué la semana y el día se anclan a una fecha y no a un mes:** una semana atraviesa dos meses a menudo, así que `?mes=` no puede representar "la semana del 28 de diciembre", que va del 28 al 3 de enero y solo pisa dos días de enero. `construirSemana` devuelve los 7 días reales del lunes al domingo, crucen el año que crucen, y `CalendarioSemana` busca cada columna por su `fechaISO` en vez de confiar en el orden del array: si el orden de la cuadrícula cambiara, las columnas se mezclarían con las cabeceras.
+
 ### `src/utils/fechas.js`
-`LOCALE`, `DIAS_SEMANA`, `DIAS_SEMANA_LARGOS`, `aFecha`, `formatearFecha`, `formatearHora`, `hoyISO`, `diaDelMes`, `esDelMesVisible`, `eventosOrdenados`, `eventosProximos`, `agruparPorFecha`, `agruparPorMes`, `etiquetaDeMes`, `etiquetaRelativa`, `esHoy`, `estaPasada`, `diasHasta`, `estaEnRango`, `getDay`.
+`LOCALE`, `DIAS_SEMANA`, `DIAS_SEMANA_LARGOS`, `aFecha`, `formatearFecha`, `formatearHora`, `hoyISO`, `diaDelMes`, `esDelMesVisible`, `eventosOrdenados`, `eventosProximos`, `agruparPorFecha`, `agruparPorMes`, `etiquetaDeMes`, `etiquetaRelativa`, `esHoy`, `estaPasada`, `diasHasta`, `estaEnRango`, `getDay`. Todas leen "hoy" de `src/utils/reloj.js`, no del reloj del sistema.
+
+### `src/utils/reloj.js`
+El módulo que responde "¿qué día es hoy?". Es el único sitio del proyecto que mira el reloj del sistema para saber la fecha de ahora.
+
+| Export | Devuelve | Para qué |
+|---|---|---|
+| `ahora()` | `Date` | La fecha actual, o la fijada con `fijarAhora`. |
+| `fijarAhora(fecha)` | `void` | Fija la fecha para las pruebas. Acepta `Date` o `AAAA-MM-DD`. |
+| `restablecerAhora()` | `void` | Vuelve al reloj real. |
+| `relojFijado()` | `boolean` | `true` si hay una fecha fijada. |
+
+- **`fechas.js` y `seed.js` leen de aquí.** Así la suite puede correr "como si fuera" el 28 de febrero de 2027 sin cambiar la firma de ninguna función de producción: `node test-datos.mjs 2027-02-28`.
+- **No importa de `fechas.js`, al revés de lo que se haría por costumbre.** `fechas.js` le pregunta por "hoy"; si `reloj.js` importara su parser, la evaluación de los dos módulos quedaría suspendida entre sí y el orden de resolución del grafo decidiría si `ahora()` existe cuando se la llama. El parser se repite aquí con las mismas dos funciones de `date-fns`.
+- **`aFechaLocal()` vive en `calendario.js`, no aquí**, porque construye fechas de cuadrícula, no lee el reloj.
 
 ### `src/utils/galeria.js`
 Derivar la galería a partir de los eventos. Todo es pura: recibe eventos y devuelve datos, sin React ni acceso al almacén, por eso se prueba sin montar nada.

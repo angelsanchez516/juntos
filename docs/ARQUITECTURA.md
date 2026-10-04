@@ -44,6 +44,36 @@ La galería no tiene datos propios: es una **vista** sobre los eventos. `src/uti
 - **`?evento=<id>`** lo escribe el enlace "Ver en la galería" del detalle y resalta esa foto con `aria-current`. Al cambiar de año se borra, porque la foto resaltada puede no estar en el año nuevo.
 - **El degradado de reserva vive en `categorias.js`**, no en `planeador.js` ni en el componente: la galería necesita el de los eventos y mantener los dos habría sido la misma interpolación escrita en dos sitios.
 
+## La vista del calendario vive en la URL
+Las tres vistas comparten la página y el conmutador, y cambian de estado con `?` en la dirección:
+
+| Vista | Parámetros | Cuadícula |
+|---|---|---|
+| Mes | `?mes=YYYY-MM` | `construirCuadricula` |
+| Semana | `?vista=semana&fecha=YYYY-MM-DD` | `construirSemana` |
+| Día | `?vista=dia&fecha=YYYY-MM-DD` | `construirDia` |
+
+- **El conmutador son `Link`, no botones.** Con `button` + estado propio, el botón "Atrás" del navegador y un enlace recibido por WhatsApp no funcionarían sin código que los escuchara. `aria-current="page"` marca la activa.
+- **`fechaDesdeParametro()` normaliza al leer.** Un `?vista=trimestre` cae en el mes y un `?fecha=2026-10-99` cae en hoy, en vez de dejar la pantalla vacía sin explicación.
+- **Cambiar de vista conserva el día que se estaba mirando.** Al volver al mes se escribe `?mes=` con el mes del ancla, no el mes en curso: quien estaba en noviembre y vuelve al mes espera ver noviembre. Solo el mes en curso se deja sin parámetros, porque esa es la dirección que se comparte.
+- **Elegir un día no escribe en la URL.** Es mirar sus eventos, no moverse: si "Compartir" mandara a otro día, el enlace sería peor que no tenerlo. Moverse con las flechas sí escribe.
+- **`elegirDiaResaltado` y `resaltarCuadricula` están fuera del componente** (`src/pages/Calendario.jsx`). Son reglas de la cuadrícula, no estado de React. Dentro del componente, el `useMemo` del resaltado y el que lo pintaba no se podían conservar: uno invalidaba al otro y podían acabar mostrando días distintos.
+
+## Un solo reloj
+`src/utils/reloj.js` es lo único que responde a "¿qué día es hoy?". El seed, `hoyISO`, `esHoy`, `estaPasada`, `diasHasta` y `fraseDelDia` leen de ahí.
+
+- **Por qué un módulo y no un parámetro en cada función.** El día en curso se consulta desde el seed, tres utilidades y dos páginas. Pasarlo como parámetro obligaría a arrastrarlo por `getEventos` → `crearEventosSeed` → `diaDelMes` y a cambiar la firma de hooks que solo necesitan la lista. Con una costura única, el comportamiento por defecto sigue siendo el reloj real y las pruebas pueden fijar la fecha sin tocar ninguna firma de producción.
+- **`reloj.js` no importa de `fechas.js`, al revés de lo que se haría por costumbre.** `fechas.js` pregunta por "hoy" a `reloj.js`; si `reloj.js` importara su parser, la evaluación de los dos módulos quedaría suspendida entre sí y el orden de resolución del grafo decidiría si `ahora()` existe cuando se la llama. El parser se repite con las mismas dos funciones de `date-fns`.
+- **La suite corre con el reloj fijado.** `node test-datos.mjs 2027-02-28`, o `npm run test:octubre`, `test:febrero` y `test:diciembre`. Las fechas están elegidas por lo que rompen: octubre es el mes del seed, febrero tiene cuatro semanas y diciembre salta la cuadrícula.
+- **Dos rutas se saltaban el reloj y por eso la suite las daba por buenas.** `mesDesdeParametro()` tenía `new Date()` como valor por defecto del parámetro, y como los parámetros por defecto se evalúan en cada llamada, esa era también la ruta de `?mes=` cuando faltaba o venía basura. `crearEvento()` sellaba `creadoEn` con `new Date()`. Ninguna de las dos fallaba en octubre: devolvían el mes y la hora del ordenador, que en la máquina de quien prueba son los mismos. Por eso el reloj se fija antes de que la comprobación mire el resultado, y no después.
+
+## Restablecer datos no es cerrar la sesión
+`resetDatos()` borra las claves de datos de la app y **conserva `juntos:v1:sesion`**.
+
+- **Por qué.** Restablecer los datos y perder la sesión son dos cosas distintas. La sesión es el único dato que la app no puede recrear, y en esta fase no hay recuperación: borrarla dejaría a cualquiera fuera de su propio calendario por haber pulsado un botón de "¿quieres volver a empezar?".
+- **`limpiarVersionesAnteriores()` aplica la misma excepción** desde antes, por el mismo motivo: subir `VERSION_DATOS` no puede cerrar la sesión de nadie.
+- **La sesión sí se puede borrar a mano**, desde el código, que es lo que hará el futuro "salir de la pareja". Lo que no puede es desaparecer sin querer al restablecer los datos.
+- En Fase 2, con recuperación de sesión y autorización por pareja en Supabase, el aviso de "salir de la pareja" dirá por separado lo que sí se pierde. Ver `TODO-FASE2 (SEGURIDAD)` y `docs/SEGURIDAD.md`.
 
 ## Validación en dos capas
 Las reglas viven solo en `src/utils/validaciones.js` y se aplican en dos sitios:
@@ -104,11 +134,11 @@ Ninguna fecha se construye con `new Date('YYYY-MM-DD')`. Esa cadena se interpret
 - La **cuadrícula** se calcula en `src/utils/calendario.js`, en funciones puras, para poder testearla sin montar React.
 - La semana empieza en **lunes** (`weekStartsOn: 1`).
 - La cuadrícula tiene **4, 5 o 6 filas** según el mes, no 6 fijas: se extiende solo hasta completar la última semana.
-- El mes visible viaja en la **URL** (`?mes=2026-10`), validado con una expresión regular. Así el calendario reabre en el mismo mes al volver del detalle, y un mes se puede compartir por enlace.
+- El mes visible viaja en la **URL** (`?mes=2026-10`), validado con una expresión regular. Así el calendario reabre en el mismo mes al volver del detalle, y un mes se puede compartir por enlace. Las vistas de semana y día añaden `?vista=` y `?fecha=`, descritas en "La vista del calendario vive en la URL".
 
 ## Próximos pasos (orden acordado)
 - **c)** Calendario mensual a mano con date-fns. **Hecho.**
-- **d)** `EventoFormModal` (validación por campo con `ErrorValidacion`, contador 500, chips, drag&drop → compresión con canvas a 1200 px → base64), detalle/editar/eliminar, estado "evento no encontrado" para el `:id`.
+- **d)** `EventoFormModal` (validación por campo con `ErrorValidacion`, contador 500, chips, drag&drop → compresión con canvas a 1200 px → base64), detalle/editar/eliminar, estado "evento no encontrado" para el `:id`. **Hecho.**
 - **e)** Planeador: filtros, corazón favorita, "Nueva idea", "Convertir en evento" precargando el formulario. **Hecho.**
 - **f)** Galería: grid responsive → navega a detalle. **Hecho.**
-- **g)** Pulido, `resetDatos` en Configuración, vistas Semana/Día, README final y cierre probando `npm run dev`.
+- **g)** Pulido, `resetDatos` en Configuración, vistas Semana/Día, README final y cierre probando `npm run dev`. **Hecho.** Las vistas de semana y día no estaban en el encargo original de este paso, que pedía dejarlas deshabilitadas; se hicieron igualmente y van en su propio commit para poder deshacerlas. Queda pendiente la comprobación visual en navegador real, que no se puede automatizar desde el terminal: está recogida en `docs/VERIFICACION_MANUAL.md`, con las casillas vacías.

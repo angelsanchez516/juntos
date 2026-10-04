@@ -11,6 +11,8 @@
  */
 
 import {
+  addDays,
+  addWeeks,
   eachDayOfInterval,
   endOfMonth,
   endOfWeek,
@@ -22,6 +24,7 @@ import {
 } from 'date-fns';
 
 import { DIAS_SEMANA_LARGOS, LOCALE, aFecha } from './fechas';
+import { ahora } from './reloj';
 
 /**
  * Día de la semana en el que empieza la semana del calendario.
@@ -84,12 +87,22 @@ export const MAX_EVENTOS_MOVIL = 4;
 /**
  * Cuadrícula completa de un mes.
  *
+ * Las vistas de semana y de día devuelven esta misma forma con una sola semana
+ * (`totalSemanas: 1`), y en la de día con una sola celda. Es lo que permite que
+ * `asignarEventos` y `eventosDe` sirvan para las tres sin duplicarse.
+ *
  * @typedef {object} Cuadricula
  * @property {Date} mes Mes pedido, normalizado al día 1.
- * @property {string} titulo Encabezado, por ejemplo `"Octubre 2026"`.
- * @property {Semana[]} semanas De 4 a 6 semanas, según el mes.
+ * @property {string} titulo Encabezado, por ejemplo `"Octubre 2026"`. En la
+ *   vista de día es el día completo, `"miércoles 14 de octubre"`.
+ * @property {Semana[]} semanas De 4 a 6 semanas según el mes; exactamente una
+ *   en las vistas de semana y de día.
  * @property {Celda[]} celdas Todas las celdas aplanadas, útil para contar.
  * @property {number} totalSemanas Número de filas de la cuadrícula.
+ * @property {Date} [fecha] Día anclado a la vista. Solo lo rellenan las vistas de
+ *   semana y de día, que son las que se navegan por `?fecha=`.
+ * @property {string} [rango] Rango legible, por ejemplo `"12 – 18 oct"`. Solo lo
+ *   rellenan las vistas de semana y de día.
  */
 
 /**
@@ -121,12 +134,13 @@ export function mesDesde(fecha) {
  *
  * ESTA FUNCIÓN ES PURA: mismos parámetros, mismo resultado. No lee el reloj, no
  * toca el DOM y no muta lo que recibe. La única lectura de "hoy" pasa por el
- * parámetro `fechaHoy`, para que en los tests se pueda fijar y comprobar el
- * comportamiento en un día concreto.
+ * parámetro `fechaHoy`, que por defecto es el reloj de `src/utils/reloj.js`, para
+ * que en los tests se pueda fijar y comprobar el comportamiento en un día
+ * concreto.
  *
  * @param {Date} mes Cualquier fecha dentro del mes a mostrar.
- * @param {Date} [fechaHoy] Fecha a considerar como "hoy". Por defecto, la
- *   fecha actual del sistema. Se pasa explícitamente en los tests.
+ * @param {Date} [fechaHoy] Fecha a considerar como "hoy". Por defecto, el reloj
+ *   de la app. Se pasa explícitamente en los tests.
  * @returns {Cuadricula} La cuadrícula del mes.
  * @example
  * const { semanas, titulo } = construirCuadricula(new Date(2026, 9, 1));
@@ -135,7 +149,7 @@ export function mesDesde(fecha) {
  * semanas[0].dias.length;                  // 7
  * semanas[0].dias[0].fechaISO;             // '2026-09-28'
  */
-export function construirCuadricula(mes, fechaHoy = new Date()) {
+export function construirCuadricula(mes, fechaHoy = ahora()) {
   const inicioMes = mesDesde(mes);
   const finMes = endOfMonth(inicioMes);
 
@@ -341,14 +355,14 @@ export function moverMesCalendario(mesActual, delta) {
  *
  * @param {string|null} valor Texto del parámetro, con formato `AAAA-MM`.
  * @param {Date} [porDefecto] Mes a usar si el valor falta o es inválido. Por
- *   defecto, el mes actual.
+ *   defecto, el del reloj de la app.
  * @returns {Date} Primer día del mes solicitado.
  * @example
  * mesDesdeParametro('2026-10');  // Date(2026, 9, 1)
- * mesDesdeParametro('basura');  // el mes actual
- * mesDesdeParametro(null);      // el mes actual
+ * mesDesdeParametro('basura');  // el mes del reloj
+ * mesDesdeParametro(null);      // el mes del reloj
  */
-export function mesDesdeParametro(valor, porDefecto = new Date()) {
+export function mesDesdeParametro(valor, porDefecto = ahora()) {
   if (typeof valor !== 'string') return mesDesde(porDefecto);
 
   const coincidencia = /^(\d{4})-(\d{1,2})$/.exec(valor.trim());
@@ -377,11 +391,296 @@ export function mesAParametro(mes) {
   return format(mes, 'yyyy-MM');
 }
 
+/* ------------------------------------------------------------------ *
+ * Vistas de semana y día.
+ *
+ * La URL es el estado de la vista, por el mismo motivo que en el Planeador: un
+ * enlace con `?vista=semana` tiene que abrir esa vista, recargar tiene que
+ * mantenerla y "Atrás" tiene que deshacer el cambio. Por eso hay un parámetro
+ * `?vista=` con tres valores y no un `useState` en la página.
+ *
+ * Las dos vistas nuevas devuelven la MISMA forma que `construirCuadricula`, con
+ * una sola semana y, en el día, una sola celda. Así `asignarEventos` y
+ * `eventosDe` sirven igual para las tres vistas, sin un segundo asignador que
+ * tendría que mantenerse en paralelo y acabaría divergiendo.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Vista mensual: la cuadrícula completa de un mes.
+ *
+ * @type {'mes'}
+ */
+export const VISTA_MES = 'mes';
+
+/**
+ * Vista semanal: una sola semana de lunes a domingo.
+ *
+ * @type {'semana'}
+ */
+export const VISTA_SEMANA = 'semana';
+
+/**
+ * Vista diaria: un solo día.
+ *
+ * @type {'dia'}
+ */
+export const VISTA_DIA = 'dia';
+
+/**
+ * Las tres vistas, en el orden en que se pintan.
+ *
+ * @type {ReadonlyArray<'mes'|'semana'|'dia'>}
+ * @example
+ * VISTAS; // ['mes', 'semana', 'dia']
+ */
+export const VISTAS = Object.freeze([VISTA_MES, VISTA_SEMANA, VISTA_DIA]);
+
+/**
+ * Etiqueta de cada vista, para el conmutador.
+ *
+ * @type {Readonly<Record<string, string>>}
+ * @example
+ * ETIQUETAS_VISTA[VISTA_SEMANA]; // 'Semana'
+ */
+export const ETIQUETAS_VISTA = Object.freeze({
+  [VISTA_MES]: 'Mes',
+  [VISTA_SEMANA]: 'Semana',
+  [VISTA_DIA]: 'Día',
+});
+
+/**
+ * Valida el valor de `?vista=`.
+ *
+ * Rechaza cualquier cosa que no sea una de las tres claves, en vez de dejar que
+ * llegue a la página: un `?vista=semman` escrito a mano tiene que abrir el
+ * calendario mensual, no una pantalla en blanco.
+ *
+ * @param {string|null} [valor] Valor leído de la URL.
+ * @param {string} [porDefecto] Vista a usar si el valor no vale. Por defecto,
+ *   `mes`.
+ * @returns {string} Una de las tres claves de vista.
+ * @example
+ * vistaDesdeParametro('semana'); // 'semana'
+ * vistaDesdeParametro('cualquier cosa'); // 'mes'
+ */
+export function vistaDesdeParametro(valor, porDefecto = VISTA_MES) {
+  return VISTAS.includes(valor) ? valor : porDefecto;
+}
+
+/**
+ * Traduce `?fecha=YYYY-MM-DD` a `Date` local.
+ *
+ * Se construye con números sueltos en lugar de `parseISO` para no arrastrar el
+ * desfase de zona horaria que el módulo de fechas explica: la fecha es un día
+ * del calendario, no un instante.
+ *
+ * Además valida que el día exista en ese mes. `new Date(2027, 1, 30)` daría 2
+ * de marzo sin avisar, y una URL con `2027-02-30` abriría un día que nadie
+ * escribió. Para eso se reconstruye la fecha con el resultado y se compara: si
+ * no coincide, el día no existe.
+ *
+ * @param {string|null} [valor] Valor leído de la URL.
+ * @param {Date} [porDefecto] Fecha a usar si el valor no vale. Por defecto, hoy.
+ * @returns {Date} Fecha local a medianoche, o la fecha por defecto.
+ * @example
+ * fechaDesdeParametro('2026-10-14').getDate(); // 14
+ * fechaDesdeParametro('2027-02-30'); // la fecha por defecto, no el 2 de marzo
+ */
+export function fechaDesdeParametro(valor, porDefecto = ahora()) {
+  if (typeof valor !== 'string') return porDefecto;
+
+  const coincidencia = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(valor.trim());
+  if (!coincidencia) return porDefecto;
+
+  const anio = Number(coincidencia[1]);
+  const mes = Number(coincidencia[2]);
+  const dia = Number(coincidencia[3]);
+
+  if (mes < 1 || mes > 12 || dia < 1 || dia > 31) return porDefecto;
+  if (anio < 1970 || anio > 3000) return porDefecto;
+
+  const fecha = new Date(anio, mes - 1, dia);
+
+  // El desbordamiento es la única forma de que el día no exista en ese mes.
+  if (
+    fecha.getFullYear() !== anio ||
+    fecha.getMonth() !== mes - 1 ||
+    fecha.getDate() !== dia
+  ) {
+    return porDefecto;
+  }
+
+  return fecha;
+}
+
+/**
+ * Serializa una fecha al formato del parámetro de URL.
+ *
+ * @param {Date} fecha Fecha a serializar.
+ * @returns {string} Texto `AAAA-MM-DD`, listo para `?fecha=`.
+ * @example
+ * fechaAParametro(new Date(2026, 9, 14)); // '2026-10-14'
+ */
+export function fechaAParametro(fecha) {
+  return format(fecha, 'yyyy-MM-dd');
+}
+
+/**
+ * Construye una celda de día con la forma que espera `asignarEventos`.
+ *
+ * @param {Date} fecha Día a describir.
+ * @param {Date} fechaHoy Fecha a considerar como "hoy".
+ * @param {number} indiceSemana Columna (0–6) dentro de la semana.
+ * @returns {Celda} Celda sin eventos y sin seleccionar.
+ */
+function celdaDe(fecha, fechaHoy, indiceSemana) {
+  return {
+    fecha,
+    fechaISO: format(fecha, 'yyyy-MM-dd'),
+    dia: fecha.getDate(),
+    // En la vista de semana y en la de día no hay relleno: todos los días
+    // mostrados pertenecen al período visible, así que ninguno se atenúa.
+    enMes: true,
+    esHoy: isSameDay(fecha, fechaHoy),
+    seleccionado: false,
+    indiceSemana,
+    indiceFila: 0,
+    eventos: [],
+  };
+}
+
+/**
+ * Construye la semana que contiene una fecha.
+ *
+ * ESTA FUNCIÓN ES PURA, como {@link construirCuadricula}: no lee el reloj fuera
+ * del parámetro `fechaHoy` y no muta lo que recibe. Devuelve la misma forma que
+ * una cuadrícula con una sola fila, para que `asignarEventos` sirva igual.
+ *
+ * @param {Date} fecha Cualquier día de la semana a mostrar. No hace falta que
+ *   sea lunes: se normaliza al lunes de esa semana.
+ * @param {Date} [fechaHoy] Fecha a considerar como "hoy". Por defecto, el reloj
+ *   de la app.
+ * @returns {Cuadricula} Cuadrícula de una sola semana.
+ * @example
+ * const semana = construirSemana(new Date(2026, 9, 14));
+ * semana.celdas.length;                  // 7
+ * semana.celdas[0].fechaISO;             // '2026-10-12', el lunes
+ * semana.celdas[6].fechaISO;             // '2026-10-18', el domingo
+ * semana.titulo;                         // '12 – 18 oct'
+ */
+export function construirSemana(fecha, fechaHoy = ahora()) {
+  const inicio = startOfWeek(fecha, { weekStartsOn: INICIO_SEMANA, locale: LOCALE });
+  const fin = endOfWeek(fecha, { weekStartsOn: INICIO_SEMANA, locale: LOCALE });
+
+  const celdas = eachDayOfInterval({ start: inicio, end: fin }).map((dia, indice) =>
+    celdaDe(dia, fechaHoy, indice),
+  );
+
+  const rango = describirRango(celdas);
+
+  return {
+    mes: inicio,
+    fecha: inicio,
+    titulo: rango,
+    rango,
+    semanas: [
+      {
+        dias: celdas,
+        contieneHoy: celdas.some((celda) => celda.esHoy),
+        contieneMesVisible: true,
+        rango,
+      },
+    ],
+    celdas,
+    totalSemanas: 1,
+  };
+}
+
+/**
+ * Construye la vista de un solo día.
+ *
+ * Igual que {@link construirSemana}, devuelve la forma de una cuadrícula con una
+ * sola celda, para que el asignador de eventos y el resto del calendario no
+ * tengan que distinguir entre las tres vistas.
+ *
+ * @param {Date} fecha Día a mostrar.
+ * @param {Date} [fechaHoy] Fecha a considerar como "hoy". Por defecto, el reloj
+ *   de la app.
+ * @returns {Cuadricula} Cuadrícula de una sola celda.
+ * @example
+ * const dia = construirDia(new Date(2026, 9, 14));
+ * dia.celdas.length;      // 1
+ * dia.celdas[0].dia;      // 14
+ * dia.titulo;             // 'miércoles 14 de octubre'
+ */
+export function construirDia(fecha, fechaHoy = ahora()) {
+  const celdas = [celdaDe(fecha, fechaHoy, fecha.getDay() === 0 ? 6 : fecha.getDay() - 1)];
+  const titulo = format(fecha, "EEEE d 'de' MMMM", { locale: LOCALE });
+
+  return {
+    mes: fecha,
+    fecha,
+    titulo,
+    rango: titulo,
+    semanas: [
+      {
+        dias: celdas,
+        contieneHoy: celdas[0].esHoy,
+        contieneMesVisible: true,
+        rango: titulo,
+      },
+    ],
+    celdas,
+    totalSemanas: 1,
+  };
+}
+
+/**
+ * Mueve la fecha visible una cantidad de días.
+ *
+ * Sirve tanto para la vista de día (un paso de 1) como para la de semana (un
+ * paso de 7).
+ *
+ * Usa `addDays` y no sumar al campo `getDate()`. Los dos resuelven el
+ * desbordamiento de fin de mes, así que la diferencia no está en el
+ * resultado: está en que `addDays` dice en una línea lo que hace, y no hay que
+ * comprobar a mano que el 31 de enero con `setDate` acaba en febrero.
+ *
+ * @param {Date} fecha Fecha visible.
+ * @param {number} delta Días a mover. Positivo avanza, negativo retrocede.
+ * @returns {Date} La fecha desplazada.
+ * @example
+ * fechaAParametro(moverDiaCalendario(new Date(2026, 9, 14), 1)); // '2026-10-15'
+ * fechaAParametro(moverDiaCalendario(new Date(2026, 9, 14), 7)); // '2026-10-21'
+ */
+export function moverDiaCalendario(fecha, delta) {
+  return addDays(fecha, delta);
+}
+
+/**
+ * Mueve la semana visible una cantidad de semanas.
+ *
+ * Se calcula sobre el lunes de la semana, no sobre el día que se tenía. Así da
+ * igual pulsar "Semana siguiente" siete veces desde el miércoles que desde el
+ * domingo: siempre se avanza de lunes a lunes.
+ *
+ * @param {Date} fecha Cualquier día de la semana visible.
+ * @param {number} delta Semanas a mover. Positivo avanza, negativo retrocede.
+ * @returns {Date} Lunes de la semana destino, a medianoche local.
+ * @example
+ * fechaAParametro(moverSemanaCalendario(new Date(2026, 9, 14), 1)); // '2026-10-19'
+ * fechaAParametro(moverSemanaCalendario(new Date(2026, 9, 14), -1)); // '2026-10-05'
+ */
+export function moverSemanaCalendario(fecha, delta) {
+  const inicio = startOfWeek(fecha, { weekStartsOn: INICIO_SEMANA, locale: LOCALE });
+  return addWeeks(inicio, delta);
+}
+
 /**
  * Traduce una fecha `YYYY-MM-DD` a `Date` local usando `aFecha`.
  *
  * Reexportado aquí para que los componentes del calendario tengan un único
- * punto de entrada y no unequeden a `new Date(fechaISO)` por error.
+ * punto de entrada y no se confunda con `new Date(fechaISO)` por error.
  *
  * @param {string} fechaISO Fecha en `YYYY-MM-DD`.
  * @returns {Date|null} Fecha local, o `null` si no es válida.

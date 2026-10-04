@@ -4,6 +4,52 @@ Todas las novedades de esta fase. Las secciones se rellenan **al terminar cada p
 
 ---
 
+## Paso g — Vistas de semana y día, y configuración
+
+### Añadido
+- **`src/utils/reloj.js`**: reloj de la aplicación. `ahora()`, `fijarAhora()`, `restablecerAhora()` y `relojFijado()`. Es el único punto por el que se pregunta qué día es hoy.
+- **Vistas de Semana y Día** en `src/components/calendar/`: `CalendarioSemana` y `CalendarioDia`. La de día reutiliza `EventosDelDia`, el mismo componente que el panel lateral, para que no puedan desincronizarse.
+- **Funciones puras de navegación** en `src/utils/calendario.js`: `construirSemana`, `construirDia`, `moverDiaCalendario`, `moverSemanaCalendario`, `vistaDesdeParametro`, `fechaDesdeParametro` y `fechaAParametro`, más las constantes `VISTA_MES`, `VISTA_SEMANA`, `VISTA_DIA`, `VISTAS` y `ETIQUETAS_VISTA`.
+- **Pantalla `Configuracion` real**, antes un marcador de posición. Recuentos de eventos e ideas, espacio aproximado ocupado, lista de claves con su versión, y el botón "Restablecer datos" con su confirmación.
+- **Scripts de fecha simulada**: `npm run test:octubre`, `npm run test:febrero` y `npm run test:diciembre`. La suite acepta además una fecha por argumento: `node test-datos.mjs 2026-10-02`.
+- **`docs/VERIFICACION_MANUAL.md`**: lo que la suite no puede comprobar, en casillas. Fidelidad con el mockup, ancho de la rejilla de la semana, scroll horizontal, EXIF y GPS, `dvh` con el teclado abierto, contraste y el flujo de bienvenida. Estaba en el informe y en el chat, que es donde se pierde.
+
+### Cambiado
+- **La vista vive en la URL**: `?vista=semana|dia&fecha=YYYY-MM-DD` para las dos nuevas, y `?mes=YYYY-MM` para la mensual. El conmutador son `Link`, no botones, para que "Atrás" y un enlace recibido por WhatsApp funcionen sin código que los escuche.
+- **`mesEnCurso` se lee del reloj**, no de `new Date()`, para que la página respete la fecha simulada de la suite.
+- **`resetDatos()` conserva la sesión.** Antes borraba todas las claves con el prefijo, incluida `juntos:v1:sesion`.
+- **`fraseDelDia()` usa la fecha local** (`ahora().getDate()`) en vez de la de UTC, que podía dar el día siguiente en un huso horario negativo.
+
+### Decisiones
+- **La sesión sobrevive a restablecer los datos.** Restablecer datos y perder la sesión son dos cosas distintas, y la sesión es el único dato que la app no puede recrear. En esta fase no hay recuperación de sesión, así que borrarla en un botón de "¿quieres volver a empezar?" sería cerrar la puerta sin avisar. `limpiarVersionesAnteriores()` aplica la misma excepción desde antes. Ver `TODO-FASE2 (SEGURIDAD)`.
+- **Pulsar un día no escribe en la URL.** Elegir un día es mirar sus eventos, no moverse en el calendario: si quien pulsa "Compartir" mandara a otro día del que quería, el enlace sería peor que no tenerlo. Moverse sí escribe, y ahí la URL es lo que hace el trabajo.
+- **La selección empieza vacía.** Señalar el día de hoy al montar haría que la pantalla fuera distinta en cada apertura. El día resaltado sale de una regla: el seleccionado si está en la vista, si no el primer día con eventos, si no el primero del mes.
+- **`elegirDiaResaltado` y `resaltarCuadricula` viven fuera del componente.** Son reglas de la cuadrícula, no estado de React. Dentro del componente, el `useMemo` del resaltado y el que lo pintaba no se podían conservar: uno invalidaba al otro y acababan pudiendo mostrar días distintos.
+- **La vista de día no pinta panel lateral.** `CalendarioDia` ya lista los eventos; repetirlo sería ver lo mismo dos veces en la misma pantalla.
+- **`Configuracion` avisa de dónde viven los datos** y de que no hay nube. Es la misma decisión de la pantalla de bienvenida, escrita donde se va a mirar cuando alguien se pregunta qué guarda la app.
+
+### Correcciones
+- **El enlace "Mes" conservaba el mes equivocado.** Iba siempre a `/calendario`, así que desde la vista de día de noviembre se volvía a octubre. Ahora lleva el mes del ancla, y solo se deja limpio cuando es el mes en curso, que es la dirección que se comparte.
+- **`mesEnCurso` usaba `new Date()`**, que ignora el reloj inyectado. Con la suite en febrero, "Hoy" quedaba mal deshabilitado.
+- **Ciclo entre `reloj.js` y `fechas.js`.** `reloj.js` importaba `aFecha` de `fechas.js`, y   `fechas.js` pregunta por "hoy" a `reloj.js`. Según el orden de resolución del grafo, `ahora()` podía no existir cuando se la llamaba. El parser se repite ahora en `reloj.js` con las mismas dos funciones de `date-fns`.
+- **Erratas en comentarios y textos**: `sinParameters`, `wheeled` en `src/pages/Calendario.jsx`; `technique` en `src/pages/Configuracion.jsx`; `Úsica`, `keypad` y `cosmeticamente` en `src/services/storage.js`; `sinfiltrar` en `src/services/eventosService.js`. Ninguna llegó a verse en pantalla, y las siete las encontró la lectura del código, no la auditoría automática, que solo detecta caracteres no latinos.
+- **`Configuracion` tenía dos diálogos anidados al confirmar el restablecimiento.** `ConfirmarSalida` se usó dentro del `Modal`: traía su propio `role="alertdialog"`, un título que decía "¿Salir sin guardar?" y sus dos botones, así que la pantalla tenía dos diálogos con dos títulos que se contradecían y cuatro botones para una sola decisión. Se quitó el componente y su detalle pasó a `descripcionAdicional`; el `Modal` ya pone el foco en el panel, así que el botón destructivo queda a un Tab de distancia. Cuatro comprobaciones nuevas lo impiden de volver.
+- **Dos rutas se saltaban el reloj.** `mesDesdeParametro()` declaraba su valor por defecto como `new Date()`, y como los parámetros por defecto se evalúan en cada llamada, esa era también la ruta de `?mes=` cuando faltaba o venía basura: con la suite en diciembre devolvía el mes real del ordenador. Y `crearEvento()` sellaba `creadoEn` con `new Date()`, de modo que un evento creado en prueba quedaba con la fecha real y se colaba entre los de otro mes al ordenarlos. Las dos preguntan ahora al reloj. En producción el reloj no está fijado, así que lo que ve nadie cambia.
+- **Un comentario justificaba mal el código.** `moverDiaCalendario()` decía que `addDays` evita que `setDate` desborde de fin de mes. No era verdad: los dos resuelven el desbordamiento igual, y lo que se gana es no tener que comprobarlo a mano. El comentario estaba corregido para dejar de sonar a error frecuente.
+
+### Verificación
+- `npm test`: 923 comprobaciones, 0 fallos, estable en 3 pasadas seguidas.
+- Fechas simuladas: `npm run test:octubre`, `npm run test:febrero` y `npm run test:diciembre`, las tres con 923 y 0 fallos.
+- `npm run lint`: 0 avisos y 0 errores.
+- `npm run build`: correcto.
+- `npm run auditar-codificacion`: 71 ficheros, 0 problemas.
+- Las tres vistas se prueban montadas, con DOM real y pulsaciones: el conmutador escribe en la URL, las flechas mueven el período de cada vista, "Hoy" vuelve al día en curso, y una URL manipulada (`?vista=trimestre`, `?fecha=2026-10-99`) cae en algo válido sin NaN.
+- Las comprobaciones de las vistas se anclan al reloj y no a octubre de 2026. Con fechas literales, en febrero y diciembre no habría eventos que encontrar y las pruebas pasarían por falta de datos en vez de por funcionamiento.
+- Hay pruebas de cruce de año, no solo de mes: la semana del 28 de diciembre de 2026 al 3 de enero de 2027, y la navegación del 31 de diciembre al 1 de enero. Es justo el caso en el que un título, un índice de día o un salto de semana se rompen sin que en octubre se note.
+- Todo lo que la suite no alcanza está en `docs/VERIFICACION_MANUAL.md`. Las casillas siguen vacías.
+
+---
+
 ## Auditoría de codificación
 
 ### Añadido

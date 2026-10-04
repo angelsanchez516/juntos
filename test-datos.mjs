@@ -4,6 +4,15 @@
  * Comprueba el comportamiento real contra un localStorage simulado (siembra,
  * CRUD, validación, lectura tolerante a fallos, cuota, UUIDs) y la función pura
  * `construirCuadricula` sin montar React.
+ *
+ * FECHA SIMULADA
+ * Con un argumento `YYYY-MM-DD` la suite fija el reloj de `src/utils/reloj.js`
+ * y toda la app pasa a creer que ese es el día de hoy: el seed siembra ese mes,
+ * las utilidades de "hoy" responden a esa fecha y los componentes renderizan
+ * desde ahí. Sirve para que los resultados no dependan del día en que se
+ * ejecuta, y para repetir la misma batería en meses con días y semanas
+ * distintas: `npm run test:octubre` y `npm run test:febrero`.
+ *
  * Ejecutar con: npm test
  */
 import { createServer } from 'vite';
@@ -85,6 +94,50 @@ const ca = await vite.ssrLoadModule('/src/utils/calendario.js');
 const cg = await vite.ssrLoadModule('/src/utils/categorias.js');
 const im = await vite.ssrLoadModule('/src/utils/imagen.js');
 const sd = await vite.ssrLoadModule('/src/data/seed.js');
+const rj = await vite.ssrLoadModule('/src/utils/reloj.js');
+
+/*
+ * Reloj de la suite. Sin argumento va con el tiempo real; con uno, la app entera
+ * cree que ese es hoy. Se fija ANTES de la primera siembra, que es el momento en
+ * que `getEventos()` decide qué escribir.
+ */
+const FECHA_SIMULADA = process.argv[2] ?? null;
+if (FECHA_SIMULADA !== null) {
+  rj.fijarAhora(FECHA_SIMULADA);
+  console.log(`\nReloj fijado: la app cree que hoy es ${FECHA_SIMULADA}.`);
+}
+
+console.log('\n== El reloj es inyectable ==');
+// Si esta costura se rompe, el resto de la suite vuelve a depender del día en
+// que se ejecuta, y es exactamente el fallo que estas comprobaciones evitan.
+
+/** Fecha local del sistema en `YYYY-MM-DD`, calculada sin `date-fns`. */
+function isoDelSistema() {
+  const momento = new Date();
+  const mes = String(momento.getMonth() + 1).padStart(2, '0');
+  const dia = String(momento.getDate()).padStart(2, '0');
+  return `${momento.getFullYear()}-${mes}-${dia}`;
+}
+
+rj.fijarAhora('2026-10-02');
+comprobar('hoyISO sigue al reloj fijado', fe.hoyISO() === '2026-10-02', fe.hoyISO());
+comprobar('esHoy usa el reloj fijado', fe.esHoy('2026-10-02') && !fe.esHoy('2026-10-03'));
+comprobar('estaPasada usa el reloj fijado', fe.estaPasada('2026-10-01') && !fe.estaPasada('2026-10-02'));
+comprobar('diasHasta usa el reloj fijado', fe.diasHasta('2026-10-05') === 3, String(fe.diasHasta('2026-10-05')));
+comprobar('etiquetaRelativa usa el reloj fijado', fe.etiquetaRelativa('2026-10-03') === 'Mañana', fe.etiquetaRelativa('2026-10-03') ?? 'null');
+comprobar('el seed se ancla al mes fijado', sd.crearEventosSeed().every((e) => e.fecha.startsWith('2026-10') || e.fecha.startsWith('2026-11')), sd.crearEventosSeed().map((e) => e.fecha).join(' '));
+comprobar('el seed acepta otra referencia explícita', sd.crearEventosSeed(new Date(2027, 1, 28)).every((e) => e.fecha.startsWith('2027-02') || e.fecha.startsWith('2027-03')), sd.crearEventosSeed(new Date(2027, 1, 28)).map((e) => e.fecha).join(' '));
+rj.restablecerAhora();
+comprobar('restablecer devuelve el reloj del sistema', fe.hoyISO() === isoDelSistema(), `${fe.hoyISO()} vs ${isoDelSistema()}`);
+comprobar('sin referencia no hay reloj fijado', rj.relojFijado() === false);
+let falloReloj = '';
+try { rj.fijarAhora('no-es-una-fecha'); } catch (e) { falloReloj = e.name; }
+comprobar('una fecha inválida falla al fijar el reloj', falloReloj === 'TypeError', falloReloj || 'no lanzó');
+rj.restablecerAhora();
+
+if (FECHA_SIMULADA !== null) {
+  rj.fijarAhora(FECHA_SIMULADA);
+}
 
 console.log('\n== Categorías ==');
 /*
@@ -281,9 +334,11 @@ comprobar('sembró 5 ideas', (await ci.getIdeasCitas()).length === 5);
 comprobar('ordenados por fecha', eventos.every((e, i) => i === 0 || eventos[i-1].fecha <= e.fecha));
 comprobar('persiste en la clave v3', storage.map.has('juntos:v3:eventos'));
 
-console.log('\n== Fechas relativas al mes actual (29 sep 2026) ==');
-const mesActual = new Date().getMonth();
-const esteMes = eventos.filter((e) => new Date(e.fecha + 'T00:00:00').getMonth() === mesActual);
+console.log('\n== Fechas relativas al mes actual ==');
+// El mes se lee del reloj, no de `new Date()`: con fecha simulada el seed
+// siembra ese mes y esta comprobación tiene que mirar el mismo.
+const mesActual = rj.ahora().getMonth();
+const esteMes = eventos.filter((e) => fe.aFecha(e.fecha).getMonth() === mesActual);
 comprobar('hay eventos en el mes actual', esteMes.length >= 5, `n=${esteMes.length}`);
 const proximos = fe.eventosProximos(eventos);
 comprobar('próximos eventos no está vacío', proximos.length > 0, `n=${proximos.length}`);
@@ -305,6 +360,17 @@ console.log('\n== CRUD de eventos ==');
 const nuevo = await ev.crearEvento({ titulo: 'Prueba', fecha: fe.hoyISO(), categoria: 'cita', hora: '10:00' });
 comprobar('crear devuelve id UUID v4', va.PATRONES.UUID.test(nuevo.id), nuevo.id);
 comprobar('crear persiste', (await ev.getEventos()).length === 9);
+
+/*
+ * La marca de alta sale del reloj de la app.
+ *
+ * Estaba puesta con `new Date()`, la hora del ordenador, así que un evento
+ * creado con la suite en fecha simulada quedaba con una marca de 2026 real y se
+ * colaba entre los de otro mes al ordenarlos. Con el reloj ya fijado por la
+ * suite, la marca tiene que coincidir con él.
+ */
+comprobar('creadoEn viene del reloj de la app, no del ordenador', nuevo.creadoEn.slice(0, 10) === fe.hoyISO(), `${nuevo.creadoEn} vs ${fe.hoyISO()}`);
+
 comprobar('getEventoById encuentra', (await ev.getEventoById(nuevo.id))?.titulo === 'Prueba');
 const actualizado = await ev.actualizarEvento(nuevo.id, { titulo: 'Prueba editada' });
 comprobar('actualizar cambia el título', actualizado.titulo === 'Prueba editada');
@@ -448,13 +514,25 @@ comprobar('convertir conserva la foto', !!convertido.foto);
 comprobar('convertir no borra la idea', (await ci.getIdeasCitas()).some((i) => i.id === ideaNueva.id));
 
 console.log('\n== resetDatos ==');
-comprobar('resetDatos borra las claves', st.resetDatos() === true && st.listarClaves().length === 0);
+/*
+ * La sesión se planta antes de restablecer a propósito: es el caso que decide
+ * si el botón hace lo que su nombre dice. "Restablecer datos" no puede cerrar
+ * la sesión de nadie, y menos aún cuando todavía no hay forma de recuperarla.
+ */
+storage.setItem(st.claveDeSesion(), '{"parejaId":"p1","creada":"2026-10-02"}');
+comprobar('resetDatos borra las claves de datos', st.resetDatos() === true && !st.listarClaves().includes(st.claveDe(st.COLECCIONES.EVENTOS)), st.listarClaves().join(', '));
+comprobar('resetDatos conserva la sesión', storage.getItem(st.claveDeSesion()) === '{"parejaId":"p1","creada":"2026-10-02"}', String(storage.getItem(st.claveDeSesion())));
+comprobar('y la sesión sigue siendo la única clave que queda', st.listarClaves().join(', ') === st.claveDeSesion(), st.listarClaves().join(', '));
 comprobar('getEventos vuelve a sembrar', (await ev.getEventos()).length === 8);
 comprobar('no toca claves ajenas', (() => {
   storage.setItem('otra-app:dato', 'x');
   st.resetDatos();
   return storage.getItem('otra-app:dato') === 'x';
 })());
+// Borrar la sesión a mano sí se puede: quien quiera salir, sale. Lo que no
+// puede es hacerlo sin querer al restablecer los datos.
+storage.removeItem(st.claveDeSesion());
+comprobar('la sesión se puede borrar a mano', st.resetDatos() === true && storage.getItem(st.claveDeSesion()) === null);
 
 console.log('\n== Versiones anteriores ==');
 // Tras el resetDatos anterior no queda nada, así que hay que sembrar de nuevo
@@ -602,6 +680,167 @@ comprobar('sin parámetro usa el mes actual', ca.mesDesdeParametro(null) instanc
 comprobar('sin parámetro usa el mes por defecto', ca.mesAParametro(ca.mesDesdeParametro(null, new Date(2025, 4, 1))) === '2025-05');
 comprobar('el día 1 es local, no UTC', ca.mesDesdeParametro('2026-10').getDate() === 1 && ca.mesDesdeParametro('2026-10').getHours() === 0);
 
+/*
+ * El valor por defecto se pregunta al reloj, no al sistema.
+ *
+ * El parámetro por defecto estaba declarado como `new Date()`, y como el
+ * parámetro por defecto se evalúa en cada llamada, esa era también la ruta que
+ * tomaba `?mes=` cuando el valor faltaba o era basura. Con la suite fijada en
+ * diciembre de 2026, esa ruta devolvía el mes real del ordenador y la prueba
+ * pasaba por un motivo equivocado. Aquí se fija el reloj en enero de 2027: si
+ * volviera a leer el sistema, saldría el mes de quien ejecuta esto.
+ */
+rj.fijarAhora('2027-01-15T10:00:00');
+comprobar('sin parámetro usa el mes del reloj', ca.mesAParametro(ca.mesDesdeParametro(null)) === '2027-01', ca.mesAParametro(ca.mesDesdeParametro(null)));
+comprobar('y un parámetro inválido también', ca.mesAParametro(ca.mesDesdeParametro('basura')) === '2027-01', ca.mesAParametro(ca.mesDesdeParametro('basura')));
+rj.restablecerAhora();
+
+console.log('\n== Vista en la URL (?vista=) ==');
+comprobar('las tres vistas están declaradas', ca.VISTAS.join(',') === 'mes,semana,dia', ca.VISTAS.join(','));
+comprobar('la vista por defecto es el mes', ca.vistaDesdeParametro(null) === 'mes');
+comprobar('interpreta las tres vistas', ca.VISTAS.every((v) => ca.vistaDesdeParametro(v) === v), ca.VISTAS.map((v) => ca.vistaDesdeParametro(v)).join(','));
+comprobar('rechaza una vista inventada', ca.vistaDesdeParametro('trimestre') === 'mes');
+comprobar('rechaza intento de inyección', ca.vistaDesdeParametro("semana'--") === 'mes');
+comprobar('respeta el valor por defecto', ca.vistaDesdeParametro('basura', ca.VISTA_DIA) === 'dia');
+comprobar('cada vista tiene etiqueta', ca.VISTAS.every((v) => typeof ca.ETIQUETAS_VISTA[v] === 'string' && ca.ETIQUETAS_VISTA[v] !== ''), JSON.stringify(ca.ETIQUETAS_VISTA));
+comprobar('son inmutables', Object.isFrozen(ca.VISTAS) && Object.isFrozen(ca.ETIQUETAS_VISTA));
+
+console.log('\n== Día en la URL (?fecha=YYYY-MM-DD) ==');
+comprobar('interpreta una fecha válida', ca.fechaAParametro(ca.fechaDesdeParametro('2026-10-14')) === '2026-10-14');
+comprobar('acepta un solo dígito', ca.fechaAParametro(ca.fechaDesdeParametro('2026-3-4')) === '2026-03-04');
+comprobar('tolera espacios', ca.fechaAParametro(ca.fechaDesdeParametro(' 2026-10-14 ')) === '2026-10-14');
+comprobar('es local, no UTC', ca.fechaDesdeParametro('2026-10-14').getHours() === 0 && ca.fechaDesdeParametro('2026-10-14').getDate() === 14);
+// El 30 de febrero es el caso que un `new Date(2027, 1, 30)` dejaría pasar
+// en silencio, devolviendo el 2 de marzo.
+comprobar('rechaza un día que no existe en el mes', ca.fechaAParametro(ca.fechaDesdeParametro('2027-02-30', new Date(2026, 9, 14))) === '2026-10-14');
+comprobar('acepta el último día real de febrero', ca.fechaAParametro(ca.fechaDesdeParametro('2028-02-29', new Date(2026, 9, 14))) === '2028-02-29');
+comprobar('rechaza basura', ca.fechaAParametro(ca.fechaDesdeParametro('ayer', new Date(2026, 9, 14))) === '2026-10-14');
+comprobar('rechaza el día 0 y el 32', ca.fechaAParametro(ca.fechaDesdeParametro('2026-10-00', new Date(2026, 9, 14))) === '2026-10-14' && ca.fechaAParametro(ca.fechaDesdeParametro('2026-10-32', new Date(2026, 9, 14))) === '2026-10-14');
+comprobar('rechaza intento de inyección', ca.fechaAParametro(ca.fechaDesdeParametro("2026-10-14' OR 1=1", new Date(2026, 9, 14))) === '2026-10-14');
+comprobar('sin parámetro usa el reloj', ca.fechaAParametro(ca.fechaDesdeParametro()) === fe.hoyISO(), ca.fechaAParametro(ca.fechaDesdeParametro()));
+
+console.log('\n== Vista de semana ==');
+// Se ancla al 14 de octubre de 2026, un miércoles, para comprobar que la
+// semana se normaliza al lunes tanto si se entra por un miércoles como por un
+// domingo.
+const semanaDel14 = ca.construirSemana(new Date(2026, 9, 14), HOY);
+comprobar('siete días exactos', semanaDel14.celdas.length === 7, String(semanaDel14.celdas.length));
+comprobar('empieza el lunes 12', semanaDel14.celdas[0].fechaISO === '2026-10-12', semanaDel14.celdas[0].fechaISO);
+comprobar('termina el domingo 18', semanaDel14.celdas[6].fechaISO === '2026-10-18', semanaDel14.celdas[6].fechaISO);
+comprobar('una sola semana', semanaDel14.totalSemanas === 1 && semanaDel14.semanas.length === 1);
+comprobar('cada columna cae en su día', semanaDel14.celdas.every((c) => c.fecha.getDay() === getDayEsperado(c.indiceSemana)), semanaDel14.celdas.map((c) => `${c.fechaISO} col${c.indiceSemana}`).join(','));
+comprobar('ningún día se atenúa como relleno', semanaDel14.celdas.every((c) => c.enMes));
+comprobar('los días son contiguos', semanaDel14.celdas.every((c, i) => i === 0 || c.fecha.getTime() - semanaDel14.celdas[i - 1].fecha.getTime() === 86400000));
+comprobar('el título es el rango', semanaDel14.titulo === '12 – 18 oct', semanaDel14.titulo);
+// Entrar por el domingo de la misma semana tiene que dar la misma semana.
+const semanaDelDomingo = ca.construirSemana(new Date(2026, 9, 18), HOY);
+comprobar('un domingo da la misma semana', semanaDelDomingo.celdas[0].fechaISO === '2026-10-12', semanaDelDomingo.celdas[0].fechaISO);
+// Y una semana que cruza meses lo dice en el título, con los dos meses.
+const semanaCruce = ca.construirSemana(new Date(2026, 9, 1), HOY);
+comprobar('una semana que cruza meses nombra los dos', semanaCruce.titulo === '28 sep – 4 oct', semanaCruce.titulo);
+// Una semana de enero entero va en un solo mes.
+const semanaDeEnero = ca.construirSemana(new Date(2027, 0, 6), HOY);
+comprobar('una semana dentro de un mes nombra solo ese mes', semanaDeEnero.titulo === '4 – 10 ene', semanaDeEnero.titulo);
+
+/*
+ * LA SEMANA QUE CRUZA EL AÑO
+ *
+ * Del 28 de diciembre de 2026 al 3 de enero de 2027 hay una semana que toca
+ * dos años. Es el caso que más falla si las fechas se construyen con
+ * `new Date('AAAA-MM-DD')`: esa cadena es UTC, así que el 28 de diciembre a las
+ * 00:00 UTC en Bogotá es el 27 a las 19:00, la semana empezaría el lunes 27 y
+ * el título diría diciembre dos veces. Por eso `aFechaLocal` construye con
+ * números sueltos, y por eso esta comprobación no es redundante con la del
+ * cruce de meses: aquí lo que se atraviesa es el año, no el mes.
+ */
+const semanaDel28DeDiciembre = ca.construirSemana(new Date(2026, 11, 28), new Date(2026, 11, 28));
+const fechasSemanaCruce = semanaDel28DeDiciembre.celdas.map((c) => c.fechaISO);
+comprobar('la semana que cruza el año tiene los 7 días', fechasSemanaCruce.length === 7, fechasSemanaCruce.join(' '));
+comprobar(
+  'y son del 28 de diciembre al 3 de enero',
+  fechasSemanaCruce.join(' ') === '2026-12-28 2026-12-29 2026-12-30 2026-12-31 2027-01-01 2027-01-02 2027-01-03',
+  fechasSemanaCruce.join(' '),
+);
+/*
+ * El 28 de diciembre de 2026 es lunes, así que el 31 cae en jueves y el 1 de
+ * enero en viernes. Si alguien cambiara `INICIO_SEMANA` sin revisar esta semana,
+ * la comprobación de abajo seguiría quedando verde en semanas que no cruzan el
+ * año: el fallo solo se ve aquí, donde los días ya no siguen al mes.
+ */
+comprobar('el 31 de diciembre cae en la columna del jueves', semanaDel28DeDiciembre.celdas.find((c) => c.fechaISO === '2026-12-31').indiceSemana === 3);
+comprobar('el 1 de enero cae en la del viernes, y no en la del lunes', semanaDel28DeDiciembre.celdas.find((c) => c.fechaISO === '2027-01-01').indiceSemana === 4);
+comprobar('ninguna celda se atenúa como relleno, aunque cambie de mes', semanaDel28DeDiciembre.celdas.every((c) => c.enMes));
+comprobar('ninguna celda lleva NaN en el año', semanaDel28DeDiciembre.celdas.every((c) => Number.isFinite(c.fecha.getFullYear())));
+comprobar('el título nombra los dos meses del cruce', semanaDel28DeDiciembre.titulo === '28 dic – 3 ene', semanaDel28DeDiciembre.titulo);
+
+// La semana siguiente a la que cruza el año tiene que estar ya dentro de enero.
+const despuesDelCruce = ca.construirSemana(ca.moverSemanaCalendario(new Date(2026, 11, 28), 1), HOY);
+comprobar('la semana siguiente ya es de enero', despuesDelCruce.celdas[0].fechaISO === '2027-01-04', despuesDelCruce.celdas[0].fechaISO);
+comprobar('y su título solo nombra enero', despuesDelCruce.titulo === '4 – 10 ene', despuesDelCruce.titulo);
+
+// Y al revés: entrar en la semana de enero que contiene el 31 de diciembre da
+// la misma semana, porque la semana se normaliza por el lunes y no por el ancla.
+comprobar('entrar por un día de enero da la semana que cruza el año', ca.construirSemana(new Date(2027, 0, 2), HOY).celdas[0].fechaISO === '2026-12-28', ca.construirSemana(new Date(2027, 0, 2), HOY).celdas[0].fechaISO);
+
+// La vista de día también tiene que poder caer en el 1 de enero sin arrastrar el
+// mes ni el año de su cuadrícula mensual.
+const primeroDeEnero = ca.construirDia(new Date(2027, 0, 1), new Date(2027, 0, 1));
+comprobar('el 1 de enero abre el 1 de enero', primeroDeEnero.celdas[0].fechaISO === '2027-01-01', primeroDeEnero.celdas[0].fechaISO);
+comprobar('su título dice enero de 2027', primeroDeEnero.titulo === 'viernes 1 de enero', primeroDeEnero.titulo);
+comprobar('y el 31 de diciembre es jueves', ca.construirDia(new Date(2026, 11, 31), HOY).titulo === 'jueves 31 de diciembre', ca.construirDia(new Date(2026, 11, 31), HOY).titulo);
+// El día marcado como hoy se propaga a la semana.
+const semanaConHoy = ca.construirSemana(new Date(2026, 9, 14), new Date(2026, 9, 15));
+comprobar('marca el día de hoy', semanaConHoy.celdas.filter((c) => c.esHoy).length === 1 && semanaConHoy.celdas.find((c) => c.esHoy).fechaISO === '2026-10-15');
+comprobar('y la semana sabe que lo contiene', semanaConHoy.semanas[0].contieneHoy === true);
+comprobar('una semana sin hoy no dice que lo contiene', ca.construirSemana(new Date(2026, 9, 14), new Date(2026, 10, 1)).semanas[0].contieneHoy === false);
+// Es pura y no muta lo que recibe.
+const impS1 = ca.construirSemana(new Date(2026, 9, 14), HOY);
+const impS2 = ca.construirSemana(new Date(2026, 9, 14), HOY);
+comprobar('misma entrada, misma salida', JSON.stringify(impS1.celdas) === JSON.stringify(impS2.celdas));
+comprobar('no muta el día recibido', new Date(2026, 9, 14).getDate() === 14);
+comprobar('las celdas no vienen con eventos', impS1.celdas.every((c) => c.eventos.length === 0 && c.seleccionado === false));
+// Sirve con el mismo asignador que el mes.
+const semanaConDatos = ca.asignarEventos(semanaDel14, new Map([['2026-10-14', [{ id: 'a' }, { id: 'b' }]]]), '2026-10-14');
+comprobar('asigna eventos con el mismo asignador', semanaConDatos.celdas.find((c) => c.fechaISO === '2026-10-14').eventos.length === 2);
+comprobar('marca la selección', semanaConDatos.celdas.filter((c) => c.seleccionado).length === 1);
+comprobar('los días vacíos quedan vacíos', semanaConDatos.celdas.filter((c) => c.eventos.length > 0).length === 1);
+comprobar('no muta la semana original', semanaDel14.celdas.find((c) => c.fechaISO === '2026-10-14').eventos.length === 0);
+comprobar('eventosDe funciona igual', ca.eventosDe(semanaConDatos, '2026-10-14').length === 2);
+comprobar('eventosDe un día fuera de la semana devuelve []', ca.eventosDe(semanaConDatos, '2026-10-20').length === 0);
+
+console.log('\n== Vista de día ==');
+const diaDel14 = ca.construirDia(new Date(2026, 9, 14), HOY);
+comprobar('una sola celda', diaDel14.celdas.length === 1 && diaDel14.semanas.length === 1);
+comprobar('es el día pedido', diaDel14.celdas[0].fechaISO === '2026-10-14' && diaDel14.celdas[0].dia === 14);
+comprobar('el título lleva el día de la semana', diaDel14.titulo === 'miércoles 14 de octubre', diaDel14.titulo);
+comprobar('la columna es la del día de la semana', diaDel14.celdas[0].indiceSemana === 2, String(diaDel14.celdas[0].indiceSemana));
+comprobar('un domingo es la última columna', ca.construirDia(new Date(2026, 9, 18), HOY).celdas[0].indiceSemana === 6);
+comprobar('un lunes es la primera columna', ca.construirDia(new Date(2026, 9, 12), HOY).celdas[0].indiceSemana === 0);
+comprobar('ningún día se atenúa como relleno', diaDel14.celdas[0].enMes);
+comprobar('marca hoy solo si coincide', ca.construirDia(new Date(2026, 9, 14), new Date(2026, 9, 14)).celdas[0].esHoy === true && diaDel14.celdas[0].esHoy === false);
+comprobar('es pura', JSON.stringify(ca.construirDia(new Date(2026, 9, 14), HOY).celdas) === JSON.stringify(diaDel14.celdas));
+comprobar('no muta el día recibido', new Date(2026, 9, 14).getDate() === 14);
+const diaConDatos = ca.asignarEventos(diaDel14, new Map([['2026-10-14', [{ id: 'a' }]]]), '2026-10-14');
+comprobar('asigna eventos con el mismo asignador', diaConDatos.celdas[0].eventos.length === 1 && diaConDatos.celdas[0].seleccionado === true);
+comprobar('un día sin eventos no inventa ninguno', ca.asignarEventos(diaDel14, new Map()).celdas[0].eventos.length === 0);
+comprobar('la etiqueta accesible cuenta bien', ca.etiquetaCelda(diaConDatos.celdas[0]) === '14 de octubre, 1 evento', ca.etiquetaCelda(diaConDatos.celdas[0]));
+
+console.log('\n== Navegación por día y por semana ==');
+comprobar('avanza un día', ca.fechaAParametro(ca.moverDiaCalendario(new Date(2026, 9, 14), 1)) === '2026-10-15');
+comprobar('retrocede un día', ca.fechaAParametro(ca.moverDiaCalendario(new Date(2026, 9, 14), -1)) === '2026-10-13');
+comprobar('cruza el mes', ca.fechaAParametro(ca.moverDiaCalendario(new Date(2026, 9, 31), 1)) === '2026-11-01');
+comprobar('cruza el año', ca.fechaAParametro(ca.moverDiaCalendario(new Date(2026, 11, 31), 1)) === '2027-01-01');
+comprobar('no desborda con delta 0', ca.fechaAParametro(ca.moverDiaCalendario(new Date(2026, 9, 14), 0)) === '2026-10-14');
+comprobar('avanza una semana', ca.fechaAParametro(ca.moverSemanaCalendario(new Date(2026, 9, 14), 1)) === '2026-10-19');
+comprobar('retrocede una semana', ca.fechaAParametro(ca.moverSemanaCalendario(new Date(2026, 9, 14), -1)) === '2026-10-05');
+comprobar('avanzar semana cae en lunes', ca.moverSemanaCalendario(new Date(2026, 9, 14), 1).getDay() === 1);
+// Da igual el día de la semana desde el que se navegue: el punto de partida es
+// el lunes de esa semana, no el día exacto que se vio.
+comprobar('da igual entrar por el domingo', ca.fechaAParametro(ca.moverSemanaCalendario(new Date(2026, 9, 18), 1)) === '2026-10-19', ca.fechaAParametro(ca.moverSemanaCalendario(new Date(2026, 9, 18), 1)));
+comprobar('cruza el año hacia atrás', ca.fechaAParametro(ca.moverSemanaCalendario(new Date(2027, 0, 4), -1)) === '2026-12-28');
+comprobar('cruza el año hacia adelante', ca.fechaAParametro(ca.moverSemanaCalendario(new Date(2026, 11, 28), 1)) === '2027-01-04');
+comprobar('va y vuelve al mismo sitio', ca.fechaAParametro(ca.moverSemanaCalendario(ca.moverSemanaCalendario(new Date(2026, 9, 14), 5), -5)) === '2026-10-12');
+
 console.log('\n== Navegación entre meses ==');
 comprobar('avanza un mes', ca.mesAParametro(ca.moverMesCalendario(new Date(2026, 9, 1), 1)) === '2026-11');
 comprobar('retrocede un mes', ca.mesAParametro(ca.moverMesCalendario(new Date(2026, 9, 1), -1)) === '2026-09');
@@ -619,19 +858,20 @@ comprobar('son inmutables', Object.isFrozen(ca.DIAS_ENCABEZADO) && Object.isFroz
 console.log('\n== Eventos del seed caben en su mes ==');
 /*
  * El seed se ancla al mes en curso con `diaDelMes()`, así que los meses se
- * calculan aquí a partir de la fecha real y no se escriben literales. Escribir
+ * calculan aquí a partir del reloj y no se escriben literales. Escribir
  * '2026-09' y '2026-10' aquí hacía que estas comprobaciones dejaran de tener
  * sentido en cuanto cambiaba el mes, y el fallo se habría leído como un problema
  * del seed cuando en realidad estaba la comprobación.
  *
  * `HOY` de arriba es una fecha fija a propósito, para que el renderizado de la
- * cuadrícula sea reproducible. Este bloque usa el reloj de verdad porque su
- * pregunta es justamente "qué meses cubre el seed hoy".
+ * cuadrícula sea reproducible. Este bloque usa el reloj de la suite, que con
+ * `npm run test:octubre` o `test:febrero` es una fecha simulada: su pregunta es
+ * justamente "qué meses cubre el seed hoy".
  */
 await ev.resetEventos();
 const sembrados = await ev.getEventos();
-const mesEnCurso = ca.mesAParametro(new Date());
-const mesSiguiente = ca.mesAParametro(ca.moverMesCalendario(new Date(), 1));
+const mesEnCurso = ca.mesAParametro(rj.ahora());
+const mesSiguiente = ca.mesAParametro(ca.moverMesCalendario(rj.ahora(), 1));
 const enMesEnCurso = sembrados.filter((e) => e.fecha.startsWith(mesEnCurso));
 const enMesSiguiente = sembrados.filter((e) => e.fecha.startsWith(mesSiguiente));
 comprobar('el seed cubre el mes actual', enMesEnCurso.length > 0, `${mesEnCurso}=${enMesEnCurso.length}`);
@@ -755,14 +995,36 @@ comprobar('los puntos de color siguen marcados como decorativos', htmlMovil.incl
 const requireDesdeProyecto = createRequire(`${process.cwd()}/package.json`);
 const ReactCjs = requireDesdeProyecto('react');
 const { renderToStaticMarkup: renderPagina } = requireDesdeProyecto('react-dom/server');
-const { MemoryRouter, Routes, Route, Navigate } = requireDesdeProyecto('react-router-dom');
+const { MemoryRouter, Routes, Route, Navigate, useLocation } = requireDesdeProyecto('react-router-dom');
 const PaginaCalendario = (await vite.ssrLoadModule('/src/pages/Calendario.jsx')).default;
 
+/*
+ * `useLocation` viene del mismo `requireDesdeProyecto` de arriba: cargarlo con
+ * `ssrLoadModule` daría error porque Vite no resuelve especificadores desnudos.
+ *
+ * El eco de la URL se declara aquí, antes que su primer uso, porque los filtros
+ * de las distintas páginas se comprueban mirando lo que se escribe en la URL y
+ * no en un estado interno: la lista se vería igual de filtrada en los dos casos,
+ * y es justo el comportamiento que hay que demostrar.
+ */
+const EcoDeUrl = () => ReactCjs.createElement('p', { id: 'eco-url' }, useLocation().search);
+
+/**
+ * Búsqueda vigente de la URL, tal y como la ve el nodo montado.
+ *
+ * @returns {string} Cadena con `?` y los parámetros, o cadena vacía.
+ */
+const ecoUrl = () => document.getElementById('eco-url')?.textContent ?? '';
+
 console.log('\n== Render: la página del calendario ==');
+// Se abre en el mes en curso del reloj simulado: el enlace "Mes" se deja sin
+// parámetros solo cuando el mes visible es ese, así que abrir en octubre con el
+// reloj en febrero daría un enlace distinto y la comprobación mediría el mes
+// equivocado en vez del conmutador.
 const htmlPagina = renderPagina(
   ReactCjs.createElement(
     MemoryRouter,
-    { initialEntries: ['/calendario?mes=2026-10'] },
+    { initialEntries: [`/calendario?mes=${ca.mesAParametro(rj.ahora())}`] },
     ReactCjs.createElement(
       Routes,
       null,
@@ -779,8 +1041,15 @@ comprobar('ofrece las tres vistas', ['>Mes<', '>Semana<', '>Día<'].every((t) =>
 comprobar('el botón de agregar está presente', htmlPagina.includes('Agregar evento'));
 comprobar('avisa del estado de carga', htmlPagina.includes('Cargando el calendario'));
 comprobar('usa el parámetro del mes de la URL sin fallar', !htmlPagina.includes('NaN') && !htmlPagina.includes('Invalid Date'));
-// Sin cuadrícula, "Semana" y "Día" deben quedar inutilizables.
-comprobar('Semana y Día salen deshabilitados', (htmlPagina.match(/disabled/g) || []).length >= 2, String((htmlPagina.match(/disabled/g) || []).length));
+// El conmutador son enlaces: la vista vive en la URL, así que tiene que ser
+// navegación de verdad y no un `button` con estado propio. En el HTML, `&` sale
+// escapado como `&amp;`, que es lo que espera un navegador al leer el atributo.
+comprobar('el conmutador es una región con nombre', (htmlPagina.match(/aria-label="Elegir la vista del calendario"/g) || []).length === 1);
+comprobar('el mes en curso va sin parámetros', htmlPagina.includes('href="/calendario"'), 'sin href limpio');
+comprobar('las otras dos llevan vista y fecha', htmlPagina.includes(`href="/calendario?vista=semana&amp;fecha=${fe.hoyISO()}"`) && htmlPagina.includes(`href="/calendario?vista=dia&amp;fecha=${fe.hoyISO()}"`), `hoy=${fe.hoyISO()}`);
+comprobar('la vista de mes es la activa', (htmlPagina.match(/aria-current="page"/g) || []).length === 1, String((htmlPagina.match(/aria-current="page"/g) || []).length));
+const htmlConmutador = (htmlPagina.match(/<nav[^>]*aria-label="Elegir la vista del calendario"[\s\S]*?<\/nav>/) || [''])[0];
+comprobar('el conmutador ya no deshabilita nada', !htmlConmutador.includes('disabled'), htmlConmutador.slice(0, 160));
 
 /*
  * ---------------------------------------------------------------------------
@@ -1001,6 +1270,282 @@ const SelectorFoto = (await vite.ssrLoadModule('/src/components/eventos/Selector
 const EventoDetallePagina = (await vite.ssrLoadModule('/src/pages/EventoDetalle.jsx')).default;
 const Modal = (await vite.ssrLoadModule('/src/components/ui/Modal.jsx')).default;
 const { ErrorServicio } = await vite.ssrLoadModule('/src/services/eventosService.js');
+
+/*
+ * ---------------------------------------------------------------------------
+ * Paso g: las tres vistas del calendario en un DOM real.
+ *
+ * Lo que se comprueba aquí es lo que solo se ve montando la página: que el
+ * conmutador escriba en la URL, que las flechas muevan el período que toca en
+ * cada vista y que cada vista enseñe lo que promete. Las funciones puras de
+ * `utils/calendario.js` ya están comprobadas más arriba, sin React.
+ * ---------------------------------------------------------------------------
+ */
+
+/*
+ * Eco de la URL propio del calendario.
+ *
+ * No se reutiliza el `EcoDeUrl` compartido porque este bloque deja varias
+ * páginas montadas a la vez -para comprobar, por ejemplo, que volver al mes
+ * desde la semana no desmonta el resto-. Con un único nodo `eco-url` en el
+ * documento, `getElementById` devolvería siempre la primera app montada y las
+ * comprobaciones medirían la URL de otra vista.
+ */
+const EcoUrlDeCalendario = () =>
+  ReactCjs.createElement('p', { id: 'eco-url-calendario' }, useLocation().search);
+
+const montarCalendario = (busqueda = '') =>
+  montar(
+    ReactCjs.createElement(
+      MemoryRouter,
+      { initialEntries: [`/calendario${busqueda}`] },
+      ReactCjs.createElement(PaginaCalendario),
+      ReactCjs.createElement(EcoUrlDeCalendario),
+    ),
+  );
+
+/**
+ * Búsqueda de la URL tal y como la ve una página concreta del calendario.
+ *
+ * @param {{raiz: Element}} app Página montada.
+ * @returns {string} Cadena con `?` y los parámetros, o cadena vacía.
+ */
+const ecoUrlDe = (app) => app.raiz.querySelector('#eco-url-calendario')?.textContent ?? '';
+
+const conmutador = (raiz) => raiz.querySelector('nav[aria-label="Elegir la vista del calendario"]');
+const enlaceVista = (raiz, etiqueta) =>
+  [...conmutador(raiz).querySelectorAll('a')].find((a) => a.textContent.trim() === etiqueta) ?? null;
+const columnaSemana = (raiz) => [...raiz.querySelectorAll('[role="gridcell"]')];
+const celdasMes = (raiz) => raiz.querySelectorAll('[role="grid"] [role="row"] button');
+const botonIcono = (raiz, etiqueta) => raiz.querySelector(`button[aria-label="${etiqueta}"]`);
+
+/*
+ * Estas comprobaciones se ancla al reloj, no a octubre de 2026. La suite se
+ * ejecuta con `test:octubre`, `test:febrero` y `test:diciembre`, y el seed
+ * siembra los eventos en el mes del día simulado: con fechas literales, en
+ * febrero y diciembre no habría nada que encontrar y las pruebas pasarían por
+ * falta de eventos en vez de por funcionamiento. De los datos del seed se
+ * derivan un día con eventos y uno libre, de modo que la prueba sigue siendo
+ * la misma en cualquier mes.
+ */
+await ev.resetEventos();
+const HOY_PASO_G = fe.hoyISO();
+const EVENTOS_DEL_SEMILLERO = await ev.getEventos();
+const DIAS_CON_EVENTOS = new Set(EVENTOS_DEL_SEMILLERO.map((e) => e.fecha));
+const diaConEventos = EVENTOS_DEL_SEMILLERO[0].fecha;
+const celdasDeLaSemanaDeHoy = ca.construirSemana(ca.aFechaLocal(HOY_PASO_G)).celdas;
+const diaLibre = celdasDeLaSemanaDeHoy.find((celda) => !DIAS_CON_EVENTOS.has(celda.fechaISO)).fechaISO;
+
+console.log('\n== Paso g: la vista mensual sigue siendo la de por defecto ==');
+const MES_EN_CURSO = ca.mesAParametro(rj.ahora());
+const appMes = await montarCalendario(`?mes=${MES_EN_CURSO}`);
+comprobar('sin `?vista=` se abre el mes', columnaSemana(appMes.raiz).length === 0 && celdasMes(appMes.raiz).length > 0, `${celdasMes(appMes.raiz).length} celdas`);
+comprobar('el título es el mes de la URL', appMes.raiz.querySelector('h2')?.textContent.trim() === ca.construirCuadricula(ca.aFechaLocal(`${MES_EN_CURSO}-01`)).titulo, appMes.raiz.querySelector('h2')?.textContent ?? 'sin título');
+comprobar('"Mes" es la vista activa', enlaceVista(appMes.raiz, 'Mes')?.getAttribute('aria-current') === 'page');
+comprobar('las otras dos no son la activa', enlaceVista(appMes.raiz, 'Semana')?.getAttribute('aria-current') === null && enlaceVista(appMes.raiz, 'Día')?.getAttribute('aria-current') === null);
+
+console.log('\n== Paso g: el conmutador escribe en la URL ==');
+await appMes.pulsar(enlaceVista(appMes.raiz, 'Semana'), 'el enlace "Semana" del conmutador');
+comprobar('pulsar "Semana" pone la vista', ecoUrlDe(appMes).includes('vista=semana'), ecoUrlDe(appMes));
+comprobar('y ancla un día', /fecha=\d{4}-\d{2}-\d{2}/.test(ecoUrlDe(appMes)), ecoUrlDe(appMes));
+
+console.log('\n== Paso g: la vista semanal ==');
+// Se ancla a un día del seed, para que la columna con eventos caiga dentro de la
+// semana que se está mirando y no en la semana vecina.
+/*
+ * Se ancla a la semana con más días con eventos, no a la del primer evento del
+ * seed. Con la del primer evento, en diciembre solo cae un día con eventos en
+ * toda la semana y las comprobaciones de "pulsar otra columna" se quedarían sin
+ * la segunda columna que necesitan. Eligiendo la semana más poblada, el mismo
+ * bloque funciona en los tres meses simulados y la suite no cambia de número
+ * de pruebas según la fecha con la que se ejecute.
+ */
+const semanaConMasEventos = EVENTOS_DEL_SEMILLERO.reduce((mejor, evento) => {
+  const semana = ca.construirSemana(ca.aFechaLocal(evento.fecha));
+  const cuantos = semana.celdas.filter((celda) => DIAS_CON_EVENTOS.has(celda.fechaISO)).length;
+  const cuantosMejor = mejor.celdas.filter((celda) => DIAS_CON_EVENTOS.has(celda.fechaISO)).length;
+
+  return cuantos > cuantosMejor ? semana : mejor;
+}, ca.construirSemana(ca.aFechaLocal(diaConEventos)));
+
+const ANCLA_SEMANA = semanaConMasEventos.celdas.find((celda) => DIAS_CON_EVENTOS.has(celda.fechaISO)).fechaISO;
+const semanaAncla = ca.construirSemana(ca.aFechaLocal(ANCLA_SEMANA));
+const tituloSemana = (ancla) => ca.construirSemana(ca.aFechaLocal(ancla)).titulo;
+// Título de un día tal y como lo escribe la vista: mismo formato en ambos
+// sitios, para que la comparación no dependa de la redacción.
+const tituloDia = (ancla) => ca.construirDia(ca.aFechaLocal(ancla)).titulo;
+const indiceConEventos = semanaAncla.celdas.findIndex((c) => DIAS_CON_EVENTOS.has(c.fechaISO));
+const indiceLibre = semanaAncla.celdas.findIndex((c) => !DIAS_CON_EVENTOS.has(c.fechaISO));
+const semanaSiguiente = ca.moverSemanaCalendario(ca.aFechaLocal(ANCLA_SEMANA), 1);
+// "Anterior" se mide desde la semana siguiente, no desde la de partida: así se
+// comprueba que la flecha hace el camino de ida y vuelta y no solo que el ancla
+// se mantiene.
+const semanaPrevia = ca.moverSemanaCalendario(semanaSiguiente, -1);
+/*
+ * Al navegar, la semana no se ancla en el día que se estaba mirando sino en su
+ * lunes. Es lo correcto -una semana se identifica por su principio- pero obliga
+ * a esperar el lunes de la semana de partida y no el ancla literal, que puede
+ * ser cualquier día entre lunes y domingo.
+ */
+const LUNES_DE_PARTIDA = semanaAncla.celdas[0].fechaISO;
+
+const appSemana = await montarCalendario(`?vista=semana&fecha=${ANCLA_SEMANA}`);
+comprobar('salen siete columnas', columnaSemana(appSemana.raiz).length === 7, String(columnaSemana(appSemana.raiz).length));
+comprobar('la semana va de lunes a domingo', columnaSemana(appSemana.raiz)[0].textContent.includes(String(semanaAncla.celdas[0].dia)) && columnaSemana(appSemana.raiz)[6].textContent.includes(String(semanaAncla.celdas[6].dia)), columnaSemana(appSemana.raiz).map((c) => c.textContent).join(' | '));
+comprobar('no es la vista de mes', celdasMes(appSemana.raiz).length === 0, String(celdasMes(appSemana.raiz).length));
+comprobar('el título es el rango de la semana', appSemana.raiz.querySelector('h2')?.textContent.trim() === semanaAncla.titulo, `${appSemana.raiz.querySelector('h2')?.textContent} != ${semanaAncla.titulo}`);
+comprobar('la región anuncia que es una semana', appSemana.raiz.querySelector('section[aria-label^="Calendario, semana"]') !== null);
+comprobar('"Semana" es la vista activa', enlaceVista(appSemana.raiz, 'Semana')?.getAttribute('aria-current') === 'page');
+comprobar('el día con eventos los lista', columnaSemana(appSemana.raiz)[indiceConEventos].querySelectorAll('a[href^="/evento/"]').length > 0, columnaSemana(appSemana.raiz)[indiceConEventos].textContent.trim());
+comprobar('un día sin eventos lo dice', columnaSemana(appSemana.raiz)[indiceLibre].textContent.includes('Libre'), columnaSemana(appSemana.raiz)[indiceLibre].textContent.trim());
+comprobar('cada columna es un rol de celda de rejilla', columnaSemana(appSemana.raiz).length === appSemana.raiz.querySelectorAll('[role="gridcell"]').length);
+// El panel lateral sigue enseñando los eventos del día resaltado.
+comprobar('el panel lateral acompaña a la vista semanal', appSemana.raiz.querySelector('aside') !== null);
+
+/*
+ * La URL con la que se abrió la vista, antes de pulsar nada. Pulsar una columna
+ * es elegir un día para mirar sus eventos, no moverse en el calendario: quien
+ * entonces pulse "Compartir" no debe enviar a nadie a otro día del que quería.
+ */
+const urlAlAbrir = ecoUrlDe(appSemana);
+
+// Al abrir por la URL no hay columna pulsada, así que el día resaltado es el
+// propio ancla y el panel lateral enseña sus eventos. El título del panel lo
+// escribe `EventosDelDia` con `formatearFecha`, no con el título de la vista de
+// día, que es más largo; se comparan contra ese mismo formato.
+const tituloPanel = () =>
+  appSemana.raiz.querySelector('aside section h2')?.textContent.trim() ?? '';
+const tituloDelPanel = (fecha) => fe.formatearFecha(fecha);
+comprobar('al abrir, el panel muestra el día anclado', tituloPanel() === tituloDelPanel(ANCLA_SEMANA), `${tituloPanel()} != ${tituloDelPanel(ANCLA_SEMANA)}`);
+comprobar('y la columna anclada sale marcada', columnaSemana(appSemana.raiz)[semanaAncla.celdas.findIndex((c) => c.fechaISO === ANCLA_SEMANA)].querySelector('[aria-pressed="true"]') !== null, columnaSemana(appSemana.raiz).map((c) => c.textContent).join(' | '));
+
+// Pulsar otra columna mueve el resaltado, y con él el panel lateral.
+const OTRA_COLUMNA = semanaAncla.celdas.findIndex(
+  (celda) => celda.fechaISO !== ANCLA_SEMANA && DIAS_CON_EVENTOS.has(celda.fechaISO),
+);
+// No es un `if`: si no hubiera segunda columna, el bloque se saltaría en
+// silencio y la suite pasaría con menos pruebas de las que dice tener.
+comprobar('la semana elegida trae al menos dos días con eventos', OTRA_COLUMNA !== -1, semanaAncla.celdas.map((c) => `${c.fechaISO}:${DIAS_CON_EVENTOS.has(c.fechaISO)}`).join(' '));
+await appSemana.pulsar(columnaSemana(appSemana.raiz)[OTRA_COLUMNA].querySelector('button'), `la columna del ${semanaAncla.celdas[OTRA_COLUMNA].fechaISO}`);
+comprobar('pulsar una columna la resalta', columnaSemana(appSemana.raiz)[OTRA_COLUMNA].querySelector('[aria-pressed="true"]') !== null, columnaSemana(appSemana.raiz).map((c) => c.textContent).join(' | '));
+comprobar('y el panel lateral la sigue', tituloPanel() === tituloDelPanel(semanaAncla.celdas[OTRA_COLUMNA].fechaISO), `${tituloPanel()} != ${tituloDelPanel(semanaAncla.celdas[OTRA_COLUMNA].fechaISO)}`);
+comprobar('sin tocar la URL, porque la selección es de esta sesión', ecoUrlDe(appSemana) === urlAlAbrir, `${ecoUrlDe(appSemana)} != ${urlAlAbrir}`);
+
+await appSemana.pulsar(botonIcono(appSemana.raiz, 'Semana siguiente'), 'la flecha de la semana siguiente');
+comprobar('avanzar una semana suma siete días', ecoUrlDe(appSemana).includes(`fecha=${ca.fechaAParametro(semanaSiguiente)}`), ecoUrlDe(appSemana));
+comprobar('el título se mueve con la URL', appSemana.raiz.querySelector('h2')?.textContent.trim() === tituloSemana(ca.fechaAParametro(semanaSiguiente)), appSemana.raiz.querySelector('h2')?.textContent ?? 'sin título');
+await appSemana.pulsar(botonIcono(appSemana.raiz, 'Semana anterior'), 'la flecha de la semana anterior');
+comprobar('retroceder una semana resta siete días', ecoUrlDe(appSemana).includes(`fecha=${ca.fechaAParametro(semanaPrevia)}`), ecoUrlDe(appSemana));
+comprobar('se vuelve a la misma semana', ecoUrlDe(appSemana).includes(`fecha=${LUNES_DE_PARTIDA}`), ecoUrlDe(appSemana));
+comprobar('y el título es el de la semana de partida', appSemana.raiz.querySelector('h2')?.textContent.trim() === semanaAncla.titulo, appSemana.raiz.querySelector('h2')?.textContent ?? 'sin título');
+
+console.log('\n== Paso g: cambiar de mes y de año con las flechas ==');
+/*
+ * Las vistas de semana y de día se mueven con las flechas, y eso tiene que
+ * funcionar igual en diciembre que en octubre. Se ancla en la semana que cruza
+ * el año (del 28 de diciembre de 2026 al 3 de enero de 2027) porque es la única
+ * semana donde el salto de mes y el de año se ven a la vez: al avanzar, el
+ * título tiene que pasar de "28 dic – 3 ene" a "4 – 10 ene", y si alguien
+ * construyera las fechas con `new Date('AAAA-MM-DD')` en UTC, en Colombia el
+ * título se iría un día y esta comprobación lo detectaría.
+ */
+const SEMANA_CRUCE_ANCLA = '2026-12-28';
+const SEMANA_CRUCE_SIGUIENTE = '2027-01-04';
+const appCruce = await montarCalendario(`?vista=semana&fecha=${SEMANA_CRUCE_ANCLA}`);
+comprobar('la semana del 28 de diciembre abre el 28', columnaSemana(appCruce.raiz)[0].textContent.includes('28'), columnaSemana(appCruce.raiz).map((c) => c.textContent).join(' | '));
+comprobar('su título nombra diciembre y enero', appCruce.raiz.querySelector('h2')?.textContent.trim() === '28 dic – 3 ene', appCruce.raiz.querySelector('h2')?.textContent ?? 'sin título');
+comprobar('las siete columnas no llevan NaN', !columnaSemana(appCruce.raiz).some((c) => /NaN|Invalid/.test(c.textContent)), columnaSemana(appCruce.raiz).map((c) => c.textContent).join(' | '));
+await appCruce.pulsar(botonIcono(appCruce.raiz, 'Semana siguiente'), 'avanzar desde la semana que cruza el año');
+comprobar('avanzar salta a la primera semana de enero', ecoUrlDe(appCruce).includes(`fecha=${SEMANA_CRUCE_SIGUIENTE}`), ecoUrlDe(appCruce));
+comprobar('y el título ya solo dice enero', appCruce.raiz.querySelector('h2')?.textContent.trim() === '4 – 10 ene', appCruce.raiz.querySelector('h2')?.textContent ?? 'sin título');
+comprobar('la columna del lunes es el 4', columnaSemana(appCruce.raiz)[0].textContent.includes('4'), columnaSemana(appCruce.raiz).map((c) => c.textContent).join(' | '));
+await appCruce.pulsar(botonIcono(appCruce.raiz, 'Semana anterior'), 'retroceder de vuelta al cruce de año');
+comprobar('retroceder vuelve al 28 de diciembre', ecoUrlDe(appCruce).includes(`fecha=${SEMANA_CRUCE_ANCLA}`), ecoUrlDe(appCruce));
+
+// La vista de día hace lo mismo, cruzando el año de un día al siguiente.
+const appDiaCruce = await montarCalendario('?vista=dia&fecha=2026-12-31');
+comprobar('el 31 de diciembre abre ese día', appDiaCruce.raiz.querySelector('h2')?.textContent.trim() === 'jueves 31 de diciembre', appDiaCruce.raiz.querySelector('h2')?.textContent ?? 'sin título');
+await appDiaCruce.pulsar(botonIcono(appDiaCruce.raiz, 'Día siguiente'), 'pasar del 31 de diciembre al 1 de enero');
+comprobar('el día siguiente es el 1 de enero de 2027', ecoUrlDe(appDiaCruce).includes('fecha=2027-01-01'), ecoUrlDe(appDiaCruce));
+comprobar('y el título lo dice', appDiaCruce.raiz.querySelector('h2')?.textContent.trim() === 'viernes 1 de enero', appDiaCruce.raiz.querySelector('h2')?.textContent ?? 'sin título');
+await appDiaCruce.pulsar(botonIcono(appDiaCruce.raiz, 'Día anterior'), 'volver del 1 de enero al 31 de diciembre');
+comprobar('y se vuelve al 31 de diciembre de 2026', ecoUrlDe(appDiaCruce).includes('fecha=2026-12-31'), ecoUrlDe(appDiaCruce));
+
+// Y volver al mes desde el 1 de enero lleva a enero de 2027, no a diciembre.
+const appVolverMes = await montarCalendario('?vista=dia&fecha=2027-01-01');
+await appVolverMes.pulsar(enlaceVista(appVolverMes.raiz, 'Mes'), 'volver al mes desde el 1 de enero');
+comprobar('volver al mes lleva a enero de 2027', ecoUrlDe(appVolverMes).includes('mes=2027-01'), ecoUrlDe(appVolverMes));
+comprobar('y quita el parámetro de vista', !ecoUrlDe(appVolverMes).includes('vista='), ecoUrlDe(appVolverMes));
+comprobar('la rejilla vuelve a ser la del mes', celdasMes(appVolverMes.raiz).length > 0, String(celdasMes(appVolverMes.raiz).length));
+
+console.log('\n== Paso g: la vista de día ==');
+const diaSiguiente = ca.moverDiaCalendario(ca.aFechaLocal(diaConEventos), 1);
+const appDia = await montarCalendario(`?vista=dia&fecha=${diaConEventos}`);
+comprobar('el título es el día completo', appDia.raiz.querySelector('h2')?.textContent.trim() === tituloDia(diaConEventos), `${appDia.raiz.querySelector('h2')?.textContent} != ${tituloDia(diaConEventos)}`);
+comprobar('no hay rejilla', columnaSemana(appDia.raiz).length === 0 && celdasMes(appDia.raiz).length === 0);
+comprobar('"Día" es la vista activa', enlaceVista(appDia.raiz, 'Día')?.getAttribute('aria-current') === 'page');
+comprobar('lista los eventos del día', appDia.raiz.querySelectorAll('a[href^="/evento/"]').length > 0, String(appDia.raiz.querySelectorAll('a[href^="/evento/"]').length));
+// En la vista de día los eventos ya están dentro del propio calendario: el panel
+// lateral no puede repetirlos, o se verían dos veces en la misma pantalla.
+comprobar('el panel lateral no repite los eventos del día', appDia.raiz.querySelector('aside') === null);
+const appDiaLibre = await montarCalendario(`?vista=dia&fecha=${diaLibre}`);
+comprobar('un día libre lo dice', appDiaLibre.raiz.textContent.includes('Este día está libre'), appDiaLibre.raiz.textContent.slice(0, 160));
+
+await appDia.pulsar(botonIcono(appDia.raiz, 'Día siguiente'), 'la flecha del día siguiente');
+comprobar('avanzar un día suma uno', ecoUrlDe(appDia).includes(`fecha=${ca.fechaAParametro(diaSiguiente)}`), ecoUrlDe(appDia));
+comprobar('el título cambia al día siguiente', appDia.raiz.querySelector('h2')?.textContent.trim() === tituloDia(ca.fechaAParametro(diaSiguiente)), appDia.raiz.querySelector('h2')?.textContent ?? 'sin título');
+await appDia.pulsar(botonIcono(appDia.raiz, 'Día anterior'), 'la flecha del día anterior');
+comprobar('retroceder un día resta uno', ecoUrlDe(appDia).includes(`fecha=${diaConEventos}`), ecoUrlDe(appDia));
+
+console.log('\n== Paso g: "Hoy" vuelve al día en curso ==');
+// Un ancla en otro mes, para que se note que "Hoy" no se limita a quitar `?mes=`.
+const appHoy = await montarCalendario(`?vista=semana&fecha=${diaConEventos}`);
+await appHoy.pulsar(appHoy.porTexto('button', 'Hoy'), 'el botón "Hoy" de la vista semanal');
+comprobar('la semana vuelve a la de hoy', ecoUrlDe(appHoy).includes(`fecha=${HOY_PASO_G}`), ecoUrlDe(appHoy));
+comprobar('y no se sale de la vista semanal', ecoUrlDe(appHoy).includes('vista=semana'), ecoUrlDe(appHoy));
+
+console.log('\n== Paso g: volver al mes conserva el mes del ancla ==');
+// El ancla tiene que estar en un mes distinto del en curso, porque para el mes
+// en curso el enlace es la dirección limpia `/calendario`: con el ancla en otro
+// mes la comprobación sí distingue "conserva el mes" de "va al mes de hoy".
+const OTRO_MES = ca.mesAParametro(ca.mesDesde(new Date(ca.aFechaLocal(diaConEventos).getFullYear(), ca.aFechaLocal(diaConEventos).getMonth() + 2, 1)));
+const appMesOtro = await montarCalendario(`?vista=dia&fecha=${OTRO_MES}-15`);
+comprobar('con el ancla en otro mes, el enlace "Mes" lo lleva', enlaceVista(appMesOtro.raiz, 'Mes')?.getAttribute('href') === `/calendario?mes=${OTRO_MES}`, enlaceVista(appMesOtro.raiz, 'Mes')?.getAttribute('href') ?? 'sin enlace');
+await appMesOtro.pulsar(enlaceVista(appMesOtro.raiz, 'Mes'), 'el enlace "Mes" con el ancla en otro mes');
+comprobar('escribe el mes del ancla, no el mes actual', ecoUrlDe(appMesOtro).includes(`mes=${OTRO_MES}`), `mes=${OTRO_MES} / ${ecoUrlDe(appMesOtro)}`);
+comprobar('sale de las vistas de semana y día', !ecoUrlDe(appMesOtro).includes('vista='), ecoUrlDe(appMesOtro));
+comprobar('y vuelve la cuadrícula del mes', columnaSemana(appMesOtro.raiz).length === 0 && celdasMes(appMesOtro.raiz).length > 0, `${celdasMes(appMesOtro.raiz).length} celdas`);
+comprobar('enseñando ese mes', appMesOtro.raiz.querySelector('h2')?.textContent.trim() === ca.construirCuadricula(ca.aFechaLocal(`${OTRO_MES}-01`)).titulo, appMesOtro.raiz.querySelector('h2')?.textContent ?? 'sin título');
+
+// Con el ancla en el mes en curso el enlace se deja limpio, que es la dirección
+// que se comparte por WhatsApp. Y desde la propia vista de mes, elegir "Mes"
+// no debe saltar a otro mes.
+await appHoy.pulsar(enlaceVista(appHoy.raiz, 'Mes'), 'el enlace "Mes" con el ancla en el mes en curso');
+comprobar('el mes en curso se deja sin parámetros', ecoUrlDe(appHoy) === '', ecoUrlDe(appHoy) || '(vacía)');
+const MES_LEJANO = ca.mesAParametro(ca.mesDesde(new Date(ca.aFechaLocal(diaConEventos).getFullYear(), ca.aFechaLocal(diaConEventos).getMonth() - 3, 1)));
+const appMesEnero = await montarCalendario(`?mes=${MES_LEJANO}`);
+comprobar('elegir "Mes" estando en el mes no lo cambia', enlaceVista(appMesEnero.raiz, 'Mes')?.getAttribute('href') === `/calendario?mes=${MES_LEJANO}`, enlaceVista(appMesEnero.raiz, 'Mes')?.getAttribute('href') ?? 'sin enlace');
+
+console.log('\n== Paso g: una URL manipulada no rompe nada ==');
+const appVistaMala = await montarCalendario('?vista=trimestre&fecha=ayer');
+comprobar('una vista inventada cae en el mes', columnaSemana(appVistaMala.raiz).length === 0 && celdasMes(appVistaMala.raiz).length > 0, `${celdasMes(appVistaMala.raiz).length} celdas`);
+comprobar('no deja NaN ni fechas inválidas en pantalla', !appVistaMala.raiz.textContent.includes('NaN') && !appVistaMala.raiz.textContent.includes('Invalid Date'), appVistaMala.raiz.textContent.slice(0, 120));
+const appFechaMala = await montarCalendario('?vista=semana&fecha=${MES_EN_CURSO}-99');
+comprobar('un día imposible cae en el de hoy', appFechaMala.raiz.querySelector('h2')?.textContent.trim() === ca.construirSemana(ca.aFechaLocal(HOY_PASO_G)).titulo, appFechaMala.raiz.querySelector('h2')?.textContent ?? 'sin título');
+
+await appFechaMala.desmontar();
+await appVistaMala.desmontar();
+await appVolverMes.desmontar();
+await appDiaCruce.desmontar();
+await appCruce.desmontar();
+await appMesEnero.desmontar();
+await appMesOtro.desmontar();
+await appDiaLibre.desmontar();
+await appHoy.desmontar();
+await appDia.desmontar();
+await appSemana.desmontar();
+await appMes.desmontar();
+await ev.resetEventos();
 
 const EVENTO_EDITABLE = {
   id: 'a0d10002-a0d2-4a02-8a02-a0d200000002',
@@ -1982,23 +2527,93 @@ comprobar('eliminar una idea la quita de la lista', (await ci.getIdeasCitas()).l
 
 
 
+console.log('\n== Paso g: Configuración ==');
+const ConfiguracionPagina = (await vite.ssrLoadModule('/src/pages/Configuracion.jsx')).default;
+await ev.resetEventos();
+await ci.resetCitas();
+const montarConfiguracion = () =>
+  montar(
+    ReactCjs.createElement(
+      MemoryRouter,
+      { initialEntries: ['/configuracion'] },
+      ReactCjs.createElement(ConfiguracionPagina),
+    ),
+  );
+
+const appConfig = await montarConfiguracion();
+// Los recuentos vienen de los services, así que hay que dejar que las promesas
+// se resuelvan antes de mirarlos.
+await act(async () => {});
+
+comprobar('la pantalla cuenta los eventos del seed', appConfig.raiz.querySelector('dd')?.textContent.trim() === '8', appConfig.raiz.querySelector('dd')?.textContent ?? 'sin recuento');
+comprobar('y también las ideas de cita', (appConfig.raiz.querySelectorAll('dd')[1]?.textContent ?? '').trim() === String(sd.crearIdeasSeed().length), appConfig.raiz.querySelectorAll('dd')[1]?.textContent ?? 'sin recuento');
+comprobar('enseña cuánto ocupa', /\d+(\.\d+)?\s?(B|kB|MB)/.test(appConfig.raiz.querySelectorAll('dd')[2]?.textContent ?? ''), appConfig.raiz.querySelectorAll('dd')[2]?.textContent ?? 'sin tamaño');
+comprobar('avisa de que los datos no salen del dispositivo', appConfig.raiz.textContent.includes('No sale a ningún servidor'), appConfig.raiz.textContent.slice(0, 160));
+comprobar('no promete nada de una nube que no existe', !appConfig.raiz.textContent.includes('nube propia'));
+
+// El botón abre una pregunta antes de borrar nada.
+comprobar('el botón de restablecer está', appConfig.porTexto('button', 'Restablecer datos') !== null);
+await appConfig.pulsar(appConfig.porTexto('button', 'Restablecer datos'), 'el botón "Restablecer datos"');
+const dialogoReset = document.querySelector('[role="alertdialog"]');
+comprobar('pregunta antes de borrar', dialogoReset !== null);
+comprobar('la pregunta es un alertdialog', dialogoReset !== null && dialogoReset.getAttribute('aria-modal') === 'true', dialogoReset?.getAttribute('aria-modal') ?? 'sin aria-modal');
+comprobar('avisa de que no se puede deshacer', dialogoReset?.textContent.includes('no se puede deshacer'), dialogoReset?.textContent.slice(0, 120) ?? '');
+comprobar('menciona las fotos, que no tienen copia', dialogoReset?.textContent.includes('fotos'), dialogoReset?.textContent.slice(0, 200) ?? '');
+comprobar('y nada se ha borrado todavía', storage.getItem(st.claveDe(st.COLECCIONES.EVENTOS)) !== null);
+
+/*
+ * Un solo diálogo, y con la pregunta correcta.
+ *
+ * `ConfirmarSalida` se diseñó para el aviso de "salir sin guardar" de un
+ * formulario: trae su propio `role="alertdialog"`, su propio título y sus
+ * propios botones. Puesto dentro del `Modal` de restablecimiento, la pantalla
+ * tenía dos diálogos anidados que decían cosas distintas y cuatro botones para
+ * una sola decisión. Estas cuatro comprobaciones lo impidieron.
+ */
+comprobar('no hay dos diálogos montados a la vez', document.querySelectorAll('[role="alertdialog"]').length === 1, String(document.querySelectorAll('[role="alertdialog"]').length));
+comprobar('el título es el de restablecer los datos', dialogoReset?.querySelector('h2')?.textContent.trim() === '¿Restablecer los datos?', dialogoReset?.querySelector('h2')?.textContent ?? 'sin título');
+comprobar('y no se cuela el aviso de salir sin guardar', !dialogoReset?.textContent.includes('Salir sin guardar'), dialogoReset?.textContent.slice(0, 120) ?? '');
+comprobar('hay exactamente dos respuestas, Cancelar y la de restablecer', dialogoReset !== null && [...dialogoReset.querySelectorAll('button')].filter((b) => b.getAttribute('aria-label') !== 'Cerrar').length === 2, String(dialogoReset?.querySelectorAll('button').length));
+comprobar('el detalle de qué se borra está entre las descripciones del diálogo', (dialogoReset?.getAttribute('aria-describedby') ?? '').split(' ').length === 2, dialogoReset?.getAttribute('aria-describedby') ?? 'sin aria-describedby');
+// El foco inicial no puede estar en el botón destructivo: quien abra el diálogo
+// por accidente y pulse Enter no debe borrar nada.
+comprobar('el foco no está en el botón destructivo', document.activeElement?.textContent?.trim() !== 'Sí, restablecer', document.activeElement?.textContent ?? 'sin foco');
+
+// Cancelar no toca nada.
+await appConfig.pulsar(
+  [...document.querySelectorAll('[role="alertdialog"] button')].find((b) => b.textContent.trim() === 'Cancelar'),
+  'el botón "Cancelar" del diálogo',
+);
+comprobar('cancelar cierra la pregunta', document.querySelector('[role="alertdialog"]') === null);
+comprobar('y deja los datos como estaban', storage.getItem(st.claveDe(st.COLECCIONES.EVENTOS)) !== null);
+
+// Un evento propio, para comprobar que el recuento baja al restablecer.
+const eventoPropio = await ev.crearEvento({ titulo: 'Para borrar', fecha: fe.hoyISO(), categoria: 'cita' });
+const conPropio = await ev.getEventos();
+comprobar('antes de restablecer hay un evento más', conPropio.length === 9, String(conPropio.length));
+
+// Ahora sí, con la sesión plantada: restablecer no puede echarla.
+storage.setItem(st.claveDeSesion(), '{"parejaId":"p1"}');
+await appConfig.pulsar(appConfig.porTexto('button', 'Restablecer datos'), 'el botón "Restablecer datos" otra vez');
+await appConfig.pulsar(
+  [...document.querySelectorAll('[role="alertdialog"] button')].find((b) => b.textContent.trim() === 'Sí, restablecer'),
+  'el botón "Sí, restablecer"',
+);
+await act(async () => {});
+comprobar('el diálogo se cierra solo al terminar', document.querySelector('[role="alertdialog"]') === null);
+comprobar('vuelve el seed y se va lo propio', (await ev.getEventos()).length === 8, String((await ev.getEventos()).length));
+comprobar('el evento propio ya no está', !(await ev.getEventos()).some((e) => e.id === eventoPropio.id));
+comprobar('el recuento se actualiza en pantalla', appConfig.raiz.querySelector('dd')?.textContent.trim() === '8', appConfig.raiz.querySelector('dd')?.textContent ?? 'sin recuento');
+comprobar('y se le avisa con un rol de estado', appConfig.raiz.querySelector('[role="status"]')?.textContent.includes('Datos restablecidos'), appConfig.raiz.querySelector('[role="status"]')?.textContent ?? 'sin aviso');
+comprobar('la sesión sobrevive al restablecimiento', storage.getItem(st.claveDeSesion()) === '{"parejaId":"p1"}', String(storage.getItem(st.claveDeSesion())));
+
+await appConfig.desmontar();
+storage.removeItem(st.claveDeSesion());
+await ev.resetEventos();
+await ci.resetCitas();
+
 console.log('\n== Paso e: la página del planeador ==');
 const PlaneadorPagina = (await vite.ssrLoadModule('/src/pages/Planeador.jsx')).default;
-// `useLocation` viene del mismo `requireDesdeProyecto` de arriba: cargarlo con
-// `ssrLoadModule` daría error porque Vite no resuelve especificadores desnudos.
-const { useLocation } = requireDesdeProyecto('react-router-dom');
-
-/**
- * Muestra la búsqueda vigente de la URL en un nodo consultable.
- *
- * Sin esto no se puede comprobar que los filtros van a la URL y no a un estado
- * interno: la lista se vería igual de filtrada en los dos casos, y es
- * exactamente el comportamiento que hay que demostrar.
- *
- * @returns {import('react').ReactElement} Nodo con la búsqueda de la URL.
- */
-const EcoDeUrl = () =>
-  ReactCjs.createElement('p', { id: 'eco-url' }, useLocation().search);
 
 const montarPlaneador = (busqueda = '') =>
   montar(
@@ -2010,7 +2625,6 @@ const montarPlaneador = (busqueda = '') =>
     ),
   );
 
-const ecoUrl = () => document.getElementById('eco-url')?.textContent ?? '';
 const tarjetas = (raiz) => [...raiz.querySelectorAll('article[data-id]')];
 const tituloTarjeta = (tarjeta) => tarjeta?.querySelector('h3')?.textContent ?? '';
 
@@ -2360,34 +2974,71 @@ comprobar('no hay `[object Object]` en pantalla', !appGaleria.raiz.textContent.i
 comprobar('la foto enlaza a su recuerdo', celdas(appGaleria.raiz).every((a) => /^\/evento\/[^/]+$/.test(a.getAttribute('href') ?? '')), celdas(appGaleria.raiz)[0]?.getAttribute('href') ?? '(sin enlace)');
 
 console.log('\n== Paso f: el enlace "Ver en la galería" del detalle ==');
+/*
+ * El resaltado se busca solo entre los enlaces de foto, con
+ * `a[aria-label^="Ver el recuerdo"]`, y no con cualquier `aria-current`. El
+ * filtro de año también marca su enlace activo, así que un selector amplio lo
+ * contaría como una foto resaltada. En diciembre el seed salta de año, el
+ * filtro aparece y esos cuatro selectores falsos fallaban.
+ */
+const fotosResaltadas = (raiz) => raiz.querySelectorAll('a[aria-label^="Ver el recuerdo"][aria-current="true"]');
+const fotoResaltada = (raiz) => raiz.querySelector('a[aria-label^="Ver el recuerdo"][aria-current="true"]');
+
 const eventoResaltado = conFoto[0];
 const appDesdeDetalle = await montarGaleria(`?evento=${encodeURIComponent(eventoResaltado.id)}`);
-const resaltada = appDesdeDetalle.raiz.querySelector('a[aria-current="true"]');
+const resaltada = fotoResaltada(appDesdeDetalle.raiz);
 comprobar('la foto abierta desde el detalle se resalta', resaltada !== null, `${celdas(appDesdeDetalle.raiz).length} fotos y ninguna resaltada`);
 comprobar('se resalta la foto de ese evento y no otra', resaltada?.getAttribute('aria-label')?.includes(eventoResaltado.titulo) === true, resaltada?.getAttribute('aria-label') ?? '(sin enlace)');
-comprobar('solo se resalta una foto', appDesdeDetalle.raiz.querySelectorAll('a[aria-current="true"]').length === 1, String(appDesdeDetalle.raiz.querySelectorAll('a[aria-current="true"]').length));
+comprobar('solo se resalta una foto', fotosResaltadas(appDesdeDetalle.raiz).length === 1, String(fotosResaltadas(appDesdeDetalle.raiz).length));
 await appDesdeDetalle.desmontar();
 
 // Un id que no existe no puede romper la página ni inventarse una foto.
 const appEventoInexistente = await montarGaleria('?evento=no-existe');
 comprobar('un evento inexistente deja la galería entera', celdas(appEventoInexistente.raiz).length === conFoto.length, String(celdas(appEventoInexistente.raiz).length));
-comprobar('y no resalta nada', appEventoInexistente.raiz.querySelectorAll('a[aria-current="true"]').length === 0, String(appEventoInexistente.raiz.querySelectorAll('a[aria-current="true"]').length));
+comprobar('y no resalta nada', fotosResaltadas(appEventoInexistente.raiz).length === 0, String(fotosResaltadas(appEventoInexistente.raiz).length));
 await appEventoInexistente.desmontar();
 
 console.log('\n== Paso f: el filtro de año ==');
 // Con un solo año con fotos el filtro no se ofrece: un selector de una única
 // opción solo añade un clic para acabar en la misma galería de siempre.
 const aniosDelSeed = ga.aniosConFotos(ga.extraerFotos(await ev.getEventos()));
-comprobar('el seed solo tiene fotos de un año', aniosDelSeed.length === 1, aniosDelSeed.join(','));
-comprobar('con un solo año no se ofrece el filtro', appGaleria.raiz.querySelector('nav[aria-label="Filtrar la galería por año"]') === null);
+// El filtro de año solo tiene sentido si hay más de un año que filtrar, así que
+// lo que se comprueba es esa equivalencia y no un número de años fijo. En
+// diciembre el seed salta al año siguiente y hay dos: la comprobación seguiría
+// siendo válida con el reloj real, con `test:octubre` y con `test:febrero`.
+comprobar('el filtro de año solo aparece si hay más de un año', (aniosDelSeed.length > 1) === (appGaleria.raiz.querySelector('nav[aria-label="Filtrar la galería por año"]') !== null), `años=${aniosDelSeed.join(',')}`);
 await appGaleria.desmontar();
 
-// Para probar el filtro hacen falta fotos de dos años, y el seed es de uno solo.
-// Se siembran a mano unos datos de dos años: es lo que hará la pareja dentro de
-// un año, y el filtro tiene que funcionar sin que el seed cambie.
-const ANIO_VIEJO = '2025';
+// Para probar el filtro hacen falta fotos de dos años, y el seed no los garantiza:
+// cubre el mes en curso y el siguiente, así que en diciembre salta de año y en
+// los demás meses no. Se siembran a mano datos de exactamente dos años, que es
+// lo que habrá dentro de un año, y el filtro tiene que funcionar sin que cambie
+// el seed. Los años se derivan del reloj de la suite en vez de escribirse, porque
+// un año fijo dejaría de ser "el anterior" en cuanto la app pasara de año.
+const ANIO_RECIENTE = String(rj.ahora().getFullYear());
+const ANIO_VIEJO = String(Number(ANIO_RECIENTE) - 1);
+const ANIO_SIN_FOTOS = String(Number(ANIO_VIEJO) - 1);
 const datosDeDosAnios = [
-  ...(await ev.getEventos()),
+  {
+    id: 'ev-reciente-1',
+    titulo: 'Cena de aniversario',
+    descripcion: '',
+    fecha: `${ANIO_RECIENTE}-06-14`,
+    hora: '20:00',
+    categoria: 'cita',
+    foto: 'https://ejemplo.test/reciente-1.jpg',
+    lugar: '',
+  },
+  {
+    id: 'ev-reciente-2',
+    titulo: 'Escapada de fin de semana',
+    descripcion: '',
+    fecha: `${ANIO_RECIENTE}-08-02`,
+    hora: '',
+    categoria: 'aventura',
+    foto: 'https://ejemplo.test/reciente-2.jpg',
+    lugar: '',
+  },
   {
     id: 'ev-antiguo-1',
     titulo: 'Primer viaje juntos',
@@ -2425,12 +3076,12 @@ escribirEventos(datosDeDosAnios);
 const fotosDeDosAnios = ga.extraerFotos(datosDeDosAnios);
 const anios = ga.aniosConFotos(fotosDeDosAnios);
 comprobar('con fotos de dos años hay dos años', anios.length === 2, anios.join(','));
-comprobar('los años van del más reciente al más antiguo', anios[0] === '2026' && anios[1] === ANIO_VIEJO, anios.join(','));
+comprobar('los años van del más reciente al más antiguo', anios[0] === ANIO_RECIENTE && anios[1] === ANIO_VIEJO, anios.join(','));
 
 const appAnios = await montarGaleria();
 comprobar('con varios años se ofrece el filtro', appAnios.raiz.querySelector('nav[aria-label="Filtrar la galería por año"]') !== null);
 comprobar('el filtro ofrece Todos y cada año', ['Todos', ...anios].every((t) => appAnios.raiz.textContent.includes(t)), appAnios.raiz.textContent.slice(0, 160));
-comprobar('un año sin fotos no aparece en el filtro', !ga.aniosConFotos(fotosDeDosAnios).some((a) => a === '2024'));
+comprobar('un año sin fotos no aparece en el filtro', !ga.aniosConFotos(fotosDeDosAnios).some((a) => a === ANIO_SIN_FOTOS), anios.join(','));
 comprobar('el filtro no filtra nada todavía', celdas(appAnios.raiz).length === fotosDeDosAnios.length, `${celdas(appAnios.raiz).length} de ${fotosDeDosAnios.length}`);
 
 const enlaceAnioViejo = appAnios.raiz.querySelector(`nav[aria-label="Filtrar la galería por año"] a[href="/galeria?anio=${ANIO_VIEJO}"]`);
@@ -2526,7 +3177,7 @@ for (const imagen of imagenes) {
 }
 comprobar('la foto rota no se queda con la imagen a medio cargar', [...appFotoRota.raiz.querySelectorAll('a[aria-label^="Ver el recuerdo"] img')].length < imagenes.length, `${imagenes.length} al principio, ${[...appFotoRota.raiz.querySelectorAll('a[aria-label^="Ver el recuerdo"] img')].length} después`);
 comprobar('la foto rota deja ver el degradado de su categoría', [...appFotoRota.raiz.querySelectorAll('a[aria-label^="Ver el recuerdo"] div[aria-hidden="true"]')].some((d) => (d.getAttribute('style') ?? '').includes('linear-gradient')), 'sin degradado');
-comprobar('el enlace sigue siendo utilizable sin la foto', appFotoRota.raiz.querySelector('a[aria-current="true"]') === null && celdas(appFotoRota.raiz).every((a) => (a.getAttribute('href') ?? '').startsWith('/evento/')), 'sin enlaces');
+comprobar('el enlace sigue siendo utilizable sin la foto', fotoResaltada(appFotoRota.raiz) === null && celdas(appFotoRota.raiz).every((a) => (a.getAttribute('href') ?? '').startsWith('/evento/')), 'sin enlaces');
 await appFotoRota.desmontar();
 
 console.log('\n== Paso f: la foto y su recuerdo no se desincronizan ==');

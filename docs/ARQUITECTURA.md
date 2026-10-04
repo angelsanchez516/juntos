@@ -8,9 +8,9 @@ La aplicación sigue una arquitectura de capas con clara separación entre **UI*
 | Capa | Ubicación | Responsabilidad |
 |---|---|---|
 | **Presentación (UI)** | `src/components/`, `src/pages/` | Renderiza la interfaz, recibe interacciones del usuario. **Nunca** accede a `localStorage` directamente. |
-| **Hooks** | `src/hooks/` | Exponen datos y operaciones a las páginas (`useEventos`, `useCitas`, `useMediaQuery`). Normalizan estado, agrupan operaciones y encapsulan efectos. |
-| **Services** | `src/services/` | **Única puerta de entrada a los datos**. Funciones `async` (`getEventos`, `crearEvento`, `toggleFavorita`, ...). Internamente usan `localStorage` y siembran con `seed.js` en el primer uso. Aquí van todos los `try/catch`. |
-| **Storage** | `src/services/storage.js` | Abstracción sobre `localStorage`: claves versionadas (`juntos:v3:eventos`), parseo tolerante, detección de cuota, `resetDatos()`. Única capa que toca `localStorage`. |
+| **Hooks** | `src/hooks/` | Exponen datos y operaciones a las páginas (`useEventos`, `useCitas`, `useMediaQuery`, `useSesion`). Normalizan estado, agrupan operaciones y encapsulan efectos. |
+| **Services** | `src/services/` | **Única puerta de entrada a los datos**. Funciones `async` (`getEventos`, `crearEvento`, `toggleFavorita`, ...) y las de sesión, que son síncronas. Internamente usan `localStorage` y siembran con `seed.js` en el primer uso. Aquí van todos los `try/catch`. |
+| **Storage** | `src/services/storage.js` | Abstracción sobre `localStorage`: claves versionadas (`juntos:v3:eventos`, `juntos:v1:sesion`), parseo tolerante, detección de cuota, `resetDatos()`. Única capa que toca `localStorage`. |
 | **Datos iniciales** | `src/data/seed.js` | Datos de ejemplo del mockup (8 eventos + 5 ideas), con **fechas relativas al mes actual**. Solo se leen cuando el storage está vacío o corrupto. |
 | **Tipos/contratos** | `src/types/models.js` | `@typedef` de `Evento` e `IdeaCita`, y la constante `ORIGEN` (fuente única de verdad). |
 | **Utilidades** | `src/utils/` | `validaciones.js` (reglas de validación compartidas), `fechas.js` (parseo y formateo con date-fns), `calendario.js` (construcción de la cuadrícula, sin React), `categorias.js` (catálogo único de categorías), `planeador.js` (reglas puras del planeador), `ids.js` (UUID v4). |
@@ -22,9 +22,28 @@ La aplicación sigue una arquitectura de capas con clara separación entre **UI*
 | Constante | Valor | Qué versiona | Qué pasa al subirla |
 |---|---|---|---|
 | `VERSION_DATOS` | 3 | La forma de los modelos: `Evento` e `IdeaCita` | La app deja de leer `juntos:v2:*`, vuelve a sembrar y escribe bajo `juntos:v3:*` |
-| `VERSION_SESION` | 1 | Lo que guarda la sesión, cuando exista | Nada: la sesión se conserva y no se regenera |
+| `VERSION_SESION` | 1 | La forma del objeto de sesión (`id`, `creadaEn`) | Nada: la sesión se conserva y no se regenera |
 
-El motivo de separarlas es que la sesión es el único dato que **no se puede reconstruir**: si comparte versión con los datos, un cambio de esquema cerraría la sesión de todo el mundo sin motivo. `limpiarVersionesAnteriores()` nunca borra la clave de sesión. Ver `docs/SEGURIDAD.md`.
+El motivo de separarlas es que la sesión es el único dato que **no se puede reconstruir**: si comparte versión con los datos, un cambio de esquema cerraría la sesión de todo el mundo sin motivo. `resetDatos()` y `limpiarVersionesAnteriores()` nunca borran la clave de sesión. Ver `docs/SEGURIDAD.md`.
+
+## Sesión y guardas de ruta
+
+`juntos:v1:sesion` guarda `{ id, creadaEn }`. La gestiona `src/services/sesion.js`
+(`leerSesion`, `crearSesion`, `cerrarSesion`, `haySesion`, `informacionSesion`) y
+`src/hooks/useSesion.js` la expone a la interfaz, suscribiéndose al evento
+`storage` para que el indicador de Configuración cambie cuando otra pestaña cierra
+sesión.
+
+**No es autenticación.** La clave se puede escribir a mano desde la consola, así que
+`ConSesion` y `SinSesion` en `src/App.jsx` solo evitan repetir la bienvenida.
+`leerSesion()` valida la forma del valor y degrada a `null` ante un JSON corrupto,
+un array o un `id` que no sea un UUID v4. `TODO-FASE2 (SEGURIDAD)` sustituye todo
+esto por la sesión de Supabase Auth.
+
+Las guardas van en los dos sentidos: sin sesión, todo lo de dentro de `<Layout />`
+redirige a `/bienvenida`; con sesión, `/bienvenida` redirige a `/`. Se protegen el
+`Layout` entero y no ruta por ruta, para que una pantalla nueva quede protegida sin
+acordarse.
 
 ## Flujo de datos
 1. **Primer acceso:** `eventosService.getEventos()` llama a `storage.leer()` → devuelve `null` (nada guardado, o JSON corrupto) → se siembra con `seed.js` → se guarda en `juntos:v3:eventos` → devuelve el array ordenado.
@@ -89,7 +108,8 @@ Que el service valide no es redundancia: es una API pública y no puede asumir q
 - **Decisión sobre Tailwind:** fijamos `tailwindcss@3.4.17` explícitamente. Vite instalaría v4 por defecto (que usa `@theme` en CSS y elimina `tailwind.config.js`). Esta decisión se documenta aquí y en `docs/CHANGELOG.md` (paso a) para facilitar una migración futura.
 
 ## Navegación y layout
-- **Rutas:** definidas en `src/App.jsx`. `/bienvenida` está **fuera** de `<Layout />` (sin sidebar ni barra inferior). El resto anidado bajo `<Layout />`.
+- **Rutas:** definidas en `src/App.jsx`. `/bienvenida` está **fuera** de `<Layout />` (sin sidebar ni barra inferior). El resto anidado bajo `<Layout />`, envuelto en `ConSesion`.
+- **Guardas:** `ConSesion` y `SinSesion` deciden, en cada momento, si se ve la bienvenida o la app. Son guardas de navegación, no autenticación. Ver "Sesión y guardas de ruta" arriba y `docs/SEGURIDAD.md`.
 - **Separación Inicio/Momentos:** `/` (Inicio) y `/momentos` (Momentos) son rutas distintas. Con `NavLink`, dos ítems con el mismo `to` quedaban activos simultáneamente; además no compartían propósito en el mockup. El `NavLink` de `/` lleva `end` para no marcarse activo en subrutas.
 - **Responsive:** `useMediaQuery('(min-width: 1024px)')` decide entre layout de escritorio y móvil (no CSS `hidden`), para evitar doble render innecesario.
 - **Safe area (iOS):** `viewport-fit=cover` en `index.html` + `pb-[env(safe-area-inset-bottom)]` en `BottomNav.jsx`.
@@ -141,4 +161,4 @@ Ninguna fecha se construye con `new Date('YYYY-MM-DD')`. Esa cadena se interpret
 - **d)** `EventoFormModal` (validación por campo con `ErrorValidacion`, contador 500, chips, drag&drop → compresión con canvas a 1200 px → base64), detalle/editar/eliminar, estado "evento no encontrado" para el `:id`. **Hecho.**
 - **e)** Planeador: filtros, corazón favorita, "Nueva idea", "Convertir en evento" precargando el formulario. **Hecho.**
 - **f)** Galería: grid responsive → navega a detalle. **Hecho.**
-- **g)** Pulido, `resetDatos` en Configuración, vistas Semana/Día, README final y cierre probando `npm run dev`. **Hecho.** Las vistas de semana y día no estaban en el encargo original de este paso, que pedía dejarlas deshabilitadas; se hicieron igualmente y van en su propio commit para poder deshacerlas. Queda pendiente la comprobación visual en navegador real, que no se puede automatizar desde el terminal: está recogida en `docs/VERIFICACION_MANUAL.md`, con las casillas vacías.
+- **g)** Pulido, `resetDatos` en Configuración, vistas Semana/Día, sesión simulada con guardas de ruta y cierre desde Configuración, README final y cierre probando `npm run dev`. **Hecho.** Dos cosas se hicieron sin estar en el encargo original: las vistas de semana y día, que pedía dejarlas deshabilitadas con "Próximamente", y la sesión con sus guardas, que solo era una excepción de `resetDatos()`. Ambas van en su propio commit para poder deshacerlas. Queda pendiente la comprobación visual en navegador real, que no se puede automatizar desde el terminal: está recogida en `docs/VERIFICACION_MANUAL.md`, con las casillas vacías.

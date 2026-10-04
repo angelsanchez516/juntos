@@ -66,13 +66,49 @@ con la barra del navegador abierta.
 - [ ] Con el **modo de alto contraste** del sistema operativo, la rejilla y los chips siguen distinguibles.
 - [ ] Los textos sobre la foto en la galería se leen con la mayor parte de las fotos del seed.
 
-## 7. Flujo de bienvenida a sesión
+## 7. Sesión, bienvenida y cierre
 
-- [ ] `/bienvenida` se ve **sin** barra lateral ni barra inferior.
-- [ ] "Comenzar" lleva a Inicio.
-- [ ] "Iniciar sesión" **no hace nada** y no deja a nadie en una pantalla rota. Está puesto como texto simulado y tiene que seguir sin hacer nada.
-- [ ] Con la sesión simulada ya creada, Configuración la muestra y **"Restablecer datos" no la borra**. Es el punto que más conviene comprobar a mano, porque la suite lo verifica sobre el almacén simulado, no sobre el del navegador.
-- [ ] "Salir de la pareja" **no existe todavía**. Cuando exista, tiene que decir por separado lo que sí se pierde.
+Lo que la suite no puede ver aquí es el `localStorage` del navegador de verdad y
+la reacción entre dos pestañas.
+
+### Primera entrada
+
+- [ ] Con el almacenamiento limpio, `/` **no muestra Inicio**: salta a `/bienvenida`.
+- [ ] `/bienvenida` se ve **sin** barra lateral ni barra inferior, con el logo, la frase y los dos botones.
+- [ ] Cualquier ruta escrita a mano sin sesión (`/calendario`, `/planeador`, `/galeria`, `/configuracion`, `/momentos`) vuelve a la bienvenida.
+- [ ] Una ruta **inexistente** también acaba en la bienvenida, sin pantalla en blanco.
+- [ ] "Comenzar" lleva a Inicio y, al volver atrás, no se repite la bienvenida.
+
+### Volver a entrar con la sesión ya creada
+
+- [ ] Escribiendo `/bienvenida` a mano con la sesión creada, salta a Inicio.
+- [ ] El botón atrás del navegador **no** devuelve a la bienvenida, que es lo que se Busca: no se puede volver a una pantalla que ya no aplica.
+
+### "Iniciar sesión"
+
+- [ ] Se ve en pantalla, se nota que no está activo y **no hace nada**: ni navega, ni error, ni pantalla rota.
+- [ ] Con **Tab** se llega al botón y con **Enter o Espacio** no pasa nada. Es el punto clave: con `disabled` de verdad dejaría de ser alcanzable, y con eso no se oye el motivo.
+- [ ] El tooltip "Próximamente" aparece al puntero.
+- [ ] Con un lector de pantalla se anuncia como no disponible y se oye el motivo, no solo "botón".
+
+### Cerrar sesión en Configuración
+
+- [ ] La sección de sesión enseña la clave y avisa de que no es autenticación.
+- [ ] "Cerrar sesión" **pregunta antes** y solo hay un diálogo, con un único título.
+- [ ] Al cancelar, no se borra nada.
+- [ ] Al confirmar, vuelve a la bienvenida y **los datos siguen ahí**: los recuerdos, las ideas y las fotos no se han perdido.
+- [ ] Entrando otra vez, el seed no se ha vuelto a sembrar: no hay recuerdos duplicados.
+
+### Sesión en la misma pestaña y en otra
+
+- [ ] Con la app abierta en **dos pestañas**, cerrar sesión en una **cambia el indicador de la otra** sin recargar. Es la razón de que el hook se suscriba al evento `storage`.
+- [ ] Al revés: cambiar cualquier dato en una pestaña no hace aparecer ni un aviso raro en la otra.
+- [ ] Cerrar sesión en una pestaña **no borra los datos** de la otra.
+
+### Lo que hay que saber antes de marcar nada
+
+- [ ] La clave se puede escribir a mano desde la consola del navegador (`localStorage.setItem('juntos:v1:sesion', '{"id":"..."}')`). Si alguien lo hace, entra. **Esto no se arregla en este paso**, y hay que decirlo en voz alta antes de dar la sesión por buena.
+- [ ] "Cerrar sesión" **no borra los datos**. Si lo que se quería era borrar todo, el botón es "Restablecer datos", y avisa de lo contrario.
 
 ## 8. Lo que se añadió sin revisión
 

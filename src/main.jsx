@@ -23,9 +23,12 @@ if (!contenedor) {
 
 createRoot(contenedor).render(
   <StrictMode>
-    {/* SEGURIDAD: BrowserRouter no protege rutas; la autorización real llega
-        en Fase 2. TODO-FASE2 (SEGURIDAD): sustituir por rutas protegidas con
-        sesión verificada en servidor. */}
+    {/* SEGURIDAD: `BrowserRouter` no protege nada por sí mismo. La guarda de
+        rutas de `App.jsx` solo comprueba si existe la clave de sesión en
+        `localStorage`, y eso cualquiera puede escribirlo: evita repetir la
+        bienvenida, no autoriza.
+        TODO-FASE2 (SEGURIDAD): sustituir la guarda por sesión de Supabase Auth
+        verificada en servidor, con autorización en las políticas RLS. */}
     <BrowserRouter>
       <App />
     </BrowserRouter>

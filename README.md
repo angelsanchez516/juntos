@@ -106,7 +106,13 @@ conmutador escribe en la URL, las flechas mueven el período de cada vista, "Hoy
 vuelve al día en curso, una URL manipulada cae en algo válido, el cambio de mes y
 de año no rompe títulos ni índices de día, y la configuración pregunta antes de
 borrar con un único diálogo y no borra nada si se cancela.
-**923 comprobaciones.**
+La sesión se prueba de punta a punta: sin ella ninguna ruta de dentro del layout
+enseña nada y `/bienvenida` es la pantalla a la que se llega; con ella la
+bienvenida ya no aparece; una clave corrupta, un array o un `id` que no sea un
+UUID cuentan como "no hay sesión"; "Comenzar" guarda la sesión y entra en Inicio;
+y cerrar sesión borra solo esa clave, deja los datos donde estaban y pregunta
+antes con un único diálogo.
+**1015 comprobaciones.**
 
 Lo que la suite no alcanza está en
 [`docs/VERIFICACION_MANUAL.md`](docs/VERIFICACION_MANUAL.md): fidelidad con el
@@ -146,7 +152,7 @@ encuentra caracteres fuera del alfabeto latino y de los signos del español
 saltos de línea mezclados o un fichero sin salto final.
 
 Existe porque **el linter no puede ver este fallo**. Un fichero puede compilar,
-pasar los 923 tests y llevar tres palabras en chino en medio de una frase en
+pasar los 1015 tests y llevar tres palabras en chino en medio de una frase en
 español: no hay error de sintaxis que lo delate. Ha pasado siete veces en este
 proyecto. Los símbolos que sí se usan a propósito (flechas, `§`, `°`, `❤`) están
 en la lista de permitidos del script, cada uno con su motivo, para que ampliar la
@@ -160,7 +166,7 @@ Conviene ejecutarlo antes de cerrar cada paso, junto a `npm test`,
 `npm run lint` y `npm run build`.
 
 ## Notas importantes
-- **Login simulado:** la pantalla `/bienvenida` tiene un botón "Comenzar" que no realiza autenticación real. Esto queda marcado con `SEGURIDAD:` y `TODO-FASE2 (SEGURIDAD)`.
+- **Sesión simulada, no autenticación:** "Comenzar" escribe `juntos:v1:sesion` y las guardas de `App.jsx` la comprueban para decidir si se ve la bienvenida o la app. La clave se puede escribir a mano desde la consola del navegador, así que no protege datos ni separa parejas: solo evita repetir el primer pantallazo. Marcado con `SEGURIDAD:` y `TODO-FASE2 (SEGURIDAD)` en el código, en `docs/SEGURIDAD.md` y en la propia pantalla de Configuración.
 - **localStorage no es seguro:** se documenta explícitamente en `docs/SEGURIDAD.md`. En Fase 2 pasará al backend (Supabase) con autorización por pareja (RLS).
 - **Colores de categoría:** se aplican con `style={{ backgroundColor }}` (hex desde `src/utils/categorias.js`). Esto evita el problema de clases dinámicas que Tailwind purga en tiempo de compilación. El texto de las cinco categorías pasa contraste AA sobre su fondo; los colores principales sobre `#F7FAFC` no llegan a 3:1 en `viaje`, `cumpleanos` y `otro`, así que el significado no debe depender solo del color.
 - **Calendario:** se construye a mano con `date-fns` (locale `es`), ignorando la pequeña duplicación visible en el mockup.

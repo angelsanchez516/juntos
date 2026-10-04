@@ -144,9 +144,9 @@ Armazón de la aplicación. Elige sidebar (≥1024px) o header+bottom nav con `u
 - `EventoDetalle`: ficha de un evento con foto, categoría, fecha, hora, lugar, descripción y enlace a la galería. Abre la edición y el borrado con confirmación, y vuelve a `?mes=` al terminar. Un id mal formado y un id inexistente dan la misma pantalla de "no encontrado", y en ninguno de los dos casos se muestra el id.
 - `Planeador`: lista de ideas de cita con alta, edición, borrado, favoritas y conversión a evento. Los filtros de categoría y de favoritas viven en la URL (`?categoria=…`, `?favoritas=1`), no en estado local, para que el filtro se pueda compartir y el botón "atrás" del navegador funcione. Ver "Componentes de citas" más abajo.
 - `Galeria`: mosaico de las fotos de los eventos, agrupado por mes y con un filtro de año. No guarda fotos propias: deriva de `useEventos()` con `extraerFotos()`, así que al borrar un recuerdo su foto desaparece sin borrar nada más. El año vive en la URL (`?anio=AAAA`) y `?evento=<id>` resalta la foto que se abrió desde el detalle. Con cuatro estados distintos: cargando, error con "Reintentar", vacío con salida al planeador, y mosaico. Ver "Componentes de galería" más abajo.
-- `Configuracion`: recuentos de eventos e ideas, espacio aproximado ocupado, lista de claves con su versión, y "Restablecer datos" con confirmación. Ver "Configuración" más abajo.
+- `Configuracion`: estado de la sesión con su clave, recuentos de eventos e ideas, espacio aproximado ocupado, lista de claves con su versión, "Cerrar sesión" con confirmación y "Restablecer datos" con confirmación. Ver "Configuración" más abajo.
 - `Momentos`: marcador de posición.
-- `Bienvenida`: fuera del layout, con el botón "Comenzar" (acceso simulado, no guarda sesión).
+- `Bienvenida`: fuera del layout, con el botón "Comenzar", que crea la sesión en `juntos:v1:sesion` y entra, e "Iniciar sesión" deshabilitado con el tooltip "Próximamente". Ver "La bienvenida y la sesión" más abajo.
 
 ## La vista del calendario vive en la URL
 
@@ -164,6 +164,76 @@ Las tres vistas comparten la página y el conmutador, y cambian de estado con `?
 - **Elegir un día no escribe en la URL.** Es mirar sus eventos, no moverse: si "Compartir" mandara a otro día, el enlace sería peor que no tenerlo. Moverse con las flechas sí escribe.
 - **La selección empieza vacía y el resaltado no.** Señalar el día de hoy al montar haría que la pantalla fuera distinta en cada apertura. El día resaltado sale de `elegirDiaResaltado`: el seleccionado si está en la vista, si no el primer día con eventos, si no el día 1 del mes.
 - **`elegirDiaResaltado` y `resaltarCuadricula` viven fuera del componente**, en el propio fichero de la página. Son reglas de la cuadrícula, no estado de React. Dentro del componente, el `useMemo` del resaltado y el que lo pintaba no se podían conservar: uno invalidaba al otro y podían acabar mostrando días distintos.
+
+## La bienvenida y la sesión
+
+`Bienvenida` es la única puerta de entrada, y vive fuera de `<Layout />` para que
+se vea como en el mockup: sin sidebar, sin barra inferior. Muestra el logo con su
+tagline, la frase "Crea recuerdos, planea nuevas aventuras y sigue escribiendo tu
+historia juntos.", "Comenzar" e "Iniciar sesión".
+
+**"Comenzar" crea la sesión.** `crearSesion()` escribe en `juntos:v1:sesion` un
+objeto `{ id, creadaEn }`, con el UUID de `utils/ids.js` y la hora del reloj
+inyectado, y a continuación navega a `/`. Si la escritura falla, no navega:
+entrar sin sesión dejaría a la persona en Inicio y la guarda la devolvería al
+instante, con un salto visible que parece un fallo. Se queda en la bienvenida
+explicando qué ha pasado.
+
+**"Iniciar sesión" está deshabilitado, no oculto.** El mockup lo enseña. Usa
+`aria-disabled="true"` en vez del atributo `disabled`, y no lleva `onClick`:
+
+| Atributo | Qué aporta |
+|---|---|
+| `aria-disabled="true"` | El lector de pantalla lo anuncia como inactivo |
+| `title="Próximamente"` | El tooltip al puntero |
+| `aria-describedby` → texto oculto | El motivo, oído con teclado |
+
+Un `disabled` de verdad habría quitado el botón del orden de tabulación: con
+teclado no se llegaría a él ni se oiría por qué no está activo.
+
+**No es autenticación.** La clave se puede escribir a mano desde la consola del
+navegador, así que la sesión solo evita repetir el primer pantallazo. Ver
+`docs/SEGURIDAD.md`.
+
+### Las guardas
+
+`src/App.jsx` declara `ConSesion` y `SinSesion`, y las dos van en sentidos
+opuestos:
+
+| Situación | Qué se ve |
+|---|---|
+| Sin sesión, cualquier ruta de dentro de `Layout` | `/bienvenida` |
+| Sin sesión, ruta que no existe | `/bienvenida` (vía el `*` → `/` → la guarda) |
+| Con sesión, cualquier ruta de dentro de `Layout` | La ruta pedida |
+| Con sesión, `/bienvenida` | `/` |
+
+Se protege el `Layout` entero en vez de cada ruta, para que una pantalla nueva
+quede protegida sin acordarse: lo que se puede olvidar es acordarse de protegerla,
+no que esté dentro. Y se protege en los dos sentidos, porque con sesión ya creada
+"Comenzar" sobrescribiría el identificador de sesión con uno nuevo sin avisar.
+
+La comprobación es síncrona, pero va en un componente y no en un `if` dentro de
+`App`: las dos guardas necesitan el mismo dato en el mismo momento, y así se lee
+el sentido de las dos en el mismo sitio.
+
+### La sesión en Configuración
+
+La primera sección de `Configuracion` dice si hay sesión, enseña la clave con su
+versión y ofrece "Cerrar sesión" con un `alertdialog` propio, que **no** reutiliza
+`ConfirmarSalida`: ese componente trae su propio `role`, su propio título y sus
+propios botones, y puesto dentro del `Modal` habría dos diálogos anidados con dos
+títulos distintos para una sola decisión.
+
+El botón se oculta en vez de quedar deshabilitado cuando no hay sesión: no hay
+nada que cerrar.
+
+`useSesion` se suscribe al evento `storage` porque "Cerrar sesión" borra una clave
+de `localStorage` sin recargar la página. El evento `storage` no lo dispara la
+propia pestaña, así que sin suscripción el indicador seguiría diciendo que hay
+sesión y ofrecería cerrar una sesión que ya no existe.
+
+Cerrar sesión borra **solo** la clave de sesión: los datos y las fotos se quedan.
+Es lo contrario de "Restablecer datos", que borra los datos y conserva la sesión.
 
 ## Configuración
 

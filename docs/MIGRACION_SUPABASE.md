@@ -211,7 +211,7 @@ Detalle importante: con RLS, un `select` sobre un evento de otra pareja devuelve
 | `VERSION_DATOS`, `claveDe()`, `limpiarVersionesAnteriores()` | Desaparecen | No hay esquema local que versionar: el `check` de cada columna hace ese trabajo, y una migración de datos es un `alter table` explícito. |
 | `VERSION_SESION`, `claveDeSesion()` | **Desaparecen, pero no se sustituyen** | En Fase 2 la sesión vive en la cookie de Supabase Auth, en el servidor, no en el navegador. Este es el punto donde `VERSION_SESION` deja de tener sentido: ver `docs/SEGURIDAD.md`. |
 
-**La única pieza de `storage.js` que sobrevive** es la capa de tolerancia a fallos: los services deben seguir envueltos en `try/catch` yuir la sesión, o una caída de red, y devolver un mensaje presentable.
+**La única pieza de `storage.js` que sobrevive** es la capa de tolerancia a fallos: los services deben seguir envueltos en `try/catch` y devolver un mensaje presentable ante una sesión perdida o una caída de red.
 
 ---
 
@@ -304,7 +304,7 @@ supabase.auth.onAuthStateChange((evento, sesion) => {
 });
 ```
 
-`/bienvenida` deja de ser un `navegar('/')` y pasa a esperar la sesión real. Las rutas de React Router se vuelven **protegidas**: sin sesión, redirect a `/bienvenida`.
+`/bienvenida` deja de crear una clave en `localStorage` y pasa a esperar la sesión real. Las guardas de ruta de `App.jsx` dejan de preguntar a `haySesion()` y pasan a preguntar a `getSession()`, y ya no hacen falta en los dos sentidos: con Supabase Auth, entrar y cerrar sesión son acciones explícitas.
 
 ---
 

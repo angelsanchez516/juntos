@@ -1,20 +1,26 @@
 /**
  * Página `Configuracion`.
  *
- * RESPONSABILIDAD: enseñar qué datos guarda la app en ese dispositivo y ofrecer
- * la única operación destructiva de la Fase 1, restablecer los datos.
+ * RESPONSABILIDAD: enseñar qué datos guarda la app en ese dispositivo, dónde está
+ * la sesión y ofrecer las dos operaciones de Fase 1: restablecer los datos y
+ * cerrar la sesión.
  *
- * Related: src/services/storage.js, src/services/eventosService.js,
+ * Related: src/services/storage.js, src/services/sesion.js,
+ *   src/services/eventosService.js, src/hooks/useSesion.js,
  *   src/components/ui/Modal.jsx
  *
  * @module pages/Configuracion
  */
 
 import { useCallback, useEffect, useId, useState } from 'react';
-import { HardDriveDownload, Lock, RotateCcw, Trash2 } from 'lucide-react';
+import { HardDriveDownload, LogOut, Lock, RotateCcw, Trash2, UserCheck } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import Boton from '../components/ui/Boton';
 import Modal from '../components/ui/Modal';
-import { COLECCIONES, leer, listarClaves, resetDatos, tamanoAproximado } from '../services/storage';
+import useSesion from '../hooks/useSesion';
+import { RUTAS } from '../constants/nav';
+import { COLECCIONES, claveDeSesion, leer, listarClaves, resetDatos, tamanoAproximado } from '../services/storage';
+import { cerrarSesion } from '../services/sesion';
 import { getEventos, resetEventos } from '../services/eventosService';
 import { getIdeasCitas } from '../services/citasService';
 
@@ -48,7 +54,17 @@ export default function Configuracion() {
   const [claves, setClaves] = useState([]);
   const [preguntando, setPreguntando] = useState(false);
   const [restableciendo, setRestableciendo] = useState(false);
+  const [preguntandoCierre, setPreguntandoCierre] = useState(false);
   const [aviso, setAviso] = useState('');
+
+  const navegar = useNavigate();
+
+  /*
+   * La sesión se lee con un hook y no a mano, porque "Cerrar sesión" no recarga la
+   * página: sin suscripción al evento `storage`, el indicador seguiría diciendo
+   * que hay sesión y ofrecería cerrar una sesión que ya no existe.
+   */
+  const { haySesion: sesionActiva, refrescar: refrescarSesion } = useSesion();
 
   /*
    * Identificador del párrafo que explica qué se va a borrar. Lo referencia
@@ -56,6 +72,13 @@ export default function Configuracion() {
    * detrás del título, y no solo lo encuentre con los ojos dentro del diálogo.
    */
   const idDetalle = useId();
+
+  /*
+   * El del diálogo de cierre de sesión, que necesita el suyo propio: cada `Modal`
+   * describe su contenido con un id, y si compartieran el mismo dos diálogos
+   * apuntarían al párrafo del otro.
+   */
+  const idCierre = useId();
 
   /**
    * Vuelve a leer el almacén y cuenta lo que hay.
@@ -132,6 +155,32 @@ export default function Configuracion() {
     }
   }, [medir]);
 
+  /**
+   * Cierra la sesión y vuelve a la bienvenida.
+   *
+   * Se borra la clave de sesión y se refresca el estado antes de navegar, para
+   * que el indicador no llegue a pintarse con una sesión que ya no existe. La
+   * navegación no es un extra: sin ella, quien cerrara sesión seguiría viendo el
+   * calendario con el `Layout` montado, y la guarda solo actuaría en el siguiente
+   * cambio de ruta.
+   *
+   * No se deja aviso en `aviso` a propósito. La página se desmonta al navegar,
+   * así que un `role="status"` escrito aquí no lo leería nadie; el aviso de que
+   * se cerró es cosa de la pantalla a la que se llega, y la bienvenida todavía no
+   * lo tiene. Coger `preguntando` y el diálogo es lo que sí hace falta cerrar.
+   *
+   * Los datos y las fotos no se tocan. Es lo contrario de "Restablecer datos",
+   * que borra los datos y conserva la sesión.
+   *
+   * @returns {void}
+   */
+  const cerrar = useCallback(() => {
+    cerrarSesion();
+    refrescarSesion();
+    setPreguntandoCierre(false);
+    navegar(RUTAS.BIENVENIDA, { replace: true });
+  }, [navegar, refrescarSesion]);
+
   return (
     <div className="mx-auto w-full max-w-2xl space-y-6">
       <header>
@@ -152,6 +201,68 @@ export default function Configuracion() {
           {aviso}
         </p>
       )}
+
+      <section
+        aria-labelledby="config-sesion"
+        className="rounded-card border border-slate-200/70 bg-white p-5 shadow-card"
+      >
+        <h2 id="config-sesion" className="flex items-center gap-2 font-display text-lg text-slate-900">
+          <UserCheck className="size-5 text-accent" aria-hidden="true" />
+          Sesión en este dispositivo
+        </h2>
+
+        {/*
+          El indicador dice si hay sesión, con qué clave y si está activa. Se
+          enseña la clave por el mismo motivo que las de los datos: para poder
+          depurar en otro navegador.
+        */}
+        <p className="mt-3 text-sm text-slate-600">
+          {sesionActiva ? (
+            <>Hay sesión abierta en este navegador.</>
+          ) : (
+            <>No hay sesión abierta en este navegador.</>
+          )}
+        </p>
+
+        <dl className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-slate-500">Clave</dt>
+            <dd>
+              <code className="rounded bg-surface px-1.5 py-0.5 text-xs">{claveDeSesion()}</code>
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-slate-500">Estado</dt>
+            <dd className="font-display text-lg text-slate-900">
+              {sesionActiva ? 'Sesión activa' : 'Sesión cerrada'}
+            </dd>
+          </div>
+        </dl>
+
+        <p className="mt-4 text-xs text-slate-500">
+          Esto no es una cuenta ni una autenticación: no hay correo ni contraseña,
+          y cualquiera puede escribir esa clave desde la consola del navegador.
+          Solo sirve para no volver a mostrar la bienvenida. TODO-FASE2
+          (SEGURIDAD): sustituirlo por la sesión de Supabase Auth.
+        </p>
+
+        {/*
+          El botón se oculta en vez de quedar deshabilitado cuando no hay
+          sesión: no hay nada que cerrar, y un botón inactivo que además hay que
+          explicar es peor que no estar.
+        */}
+        {sesionActiva && (
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <Boton variante="secundario" onClick={() => setPreguntandoCierre(true)}>
+              <LogOut className="size-4" aria-hidden="true" />
+              Cerrar sesión
+            </Boton>
+            <p className="text-xs text-slate-500">
+              Vuelve a la bienvenida. Tus datos y tus fotos se quedan aquí.
+            </p>
+          </div>
+        )}
+      </section>
 
       <section
         aria-labelledby="config-datos"
@@ -278,6 +389,42 @@ export default function Configuracion() {
           Se borrarán los {recuento.eventos} eventos y las {recuento.ideas} ideas de cita,
           incluidas las fotos que habéis subido, y volverán a aparecer los datos de
           ejemplo.
+        </p>
+      </Modal>
+
+      {/*
+        Diálogo de cierre de sesión, con su propio `alertdialog` y NO reutilizando
+        `ConfirmarSalida`, que trae su propio `role`, su propio título ("¿Salir sin
+        guardar?") y sus propios botones: aquí eso sería un segundo diálogo dentro
+        del primero, con dos títulos distintos y cuatro botones para una decisión.
+
+        El aviso importa menos que en el otro caso: cerrar sesión no borra nada y se
+        puede deshacer pulsando "Comenzar", así que no es `alertdialog` por el
+        riesgo sino por la misma coherencia de la pantalla. `dialog` habría bastado.
+      */}
+      <Modal
+        abierto={preguntandoCierre}
+        onCerrar={() => setPreguntandoCierre(false)}
+        titulo="¿Cerrar la sesión?"
+        descripcion="Volverás a la pantalla de bienvenida en este dispositivo."
+        descripcionAdicional={[idCierre]}
+        rol="alertdialog"
+        pie={
+          <>
+            <Boton variante="fantasma" onClick={() => setPreguntandoCierre(false)}>
+              Cancelar
+            </Boton>
+            <Boton variante="primario" onClick={cerrar}>
+              <LogOut className="size-4" aria-hidden="true" />
+              Sí, cerrar sesión
+            </Boton>
+          </>
+        }
+      >
+        <p id={idCierre} className="text-sm text-slate-600">
+          Tus {recuento.eventos} eventos y tus {recuento.ideas} ideas de cita, con sus
+          fotos, se quedan guardados: cerrar sesión no borra nada. Para volver a entrar
+          en esta fase hay que pulsar "Comenzar" otra vez.
         </p>
       </Modal>
     </div>

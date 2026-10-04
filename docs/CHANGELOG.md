@@ -4,13 +4,17 @@ Todas las novedades de esta fase. Las secciones se rellenan **al terminar cada p
 
 ---
 
-## Paso g — Vistas de semana y día, y configuración
+## Paso g — Sesión, guardas de ruta y vistas de semana y día
 
 ### Añadido
 - **`src/utils/reloj.js`**: reloj de la aplicación. `ahora()`, `fijarAhora()`, `restablecerAhora()` y `relojFijado()`. Es el único punto por el que se pregunta qué día es hoy.
+- **`src/services/sesion.js`**: `leerSesion()`, `haySesion()`, `crearSesion()`, `cerrarSesion()` e `informacionSesion()`. Guarda `juntos:v1:sesion` con `{ id, creadaEn }`, con su versión propia y separada de la de los datos.
+- **`src/hooks/useSesion.js`**: estado de la sesión para la interfaz, suscrito al evento `storage` para que el indicador cambie cuando otra pestaña cierra sesión.
+- **Guardas de ruta en `src/App.jsx`**: `ConSesion` para todo lo de dentro de `<Layout />` y `SinSesion` para `/bienvenida`.
 - **Vistas de Semana y Día** en `src/components/calendar/`: `CalendarioSemana` y `CalendarioDia`. La de día reutiliza `EventosDelDia`, el mismo componente que el panel lateral, para que no puedan desincronizarse.
 - **Funciones puras de navegación** en `src/utils/calendario.js`: `construirSemana`, `construirDia`, `moverDiaCalendario`, `moverSemanaCalendario`, `vistaDesdeParametro`, `fechaDesdeParametro` y `fechaAParametro`, más las constantes `VISTA_MES`, `VISTA_SEMANA`, `VISTA_DIA`, `VISTAS` y `ETIQUETAS_VISTA`.
-- **Pantalla `Configuracion` real**, antes un marcador de posición. Recuentos de eventos e ideas, espacio aproximado ocupado, lista de claves con su versión, y el botón "Restablecer datos" con su confirmación.
+- **Pantalla `Configuracion` real**, antes un marcador de posición. Estado de la sesión con su clave, recuentos de eventos e ideas, espacio aproximado ocupado, lista de claves con su versión, "Cerrar sesión" y "Restablecer datos", cada uno con su confirmación.
+- **Funciones de clave suelta en `storage.js`**: `leerClave()`, `escribirClave()` y `borrarClave()`. Las de colección asumen un array de `COLECCIONES`, y la sesión es un objeto con versión propia.
 - **Scripts de fecha simulada**: `npm run test:octubre`, `npm run test:febrero` y `npm run test:diciembre`. La suite acepta además una fecha por argumento: `node test-datos.mjs 2026-10-02`.
 - **`docs/VERIFICACION_MANUAL.md`**: lo que la suite no puede comprobar, en casillas. Fidelidad con el mockup, ancho de la rejilla de la semana, scroll horizontal, EXIF y GPS, `dvh` con el teclado abierto, contraste y el flujo de bienvenida. Estaba en el informe y en el chat, que es donde se pierde.
 
@@ -19,30 +23,45 @@ Todas las novedades de esta fase. Las secciones se rellenan **al terminar cada p
 - **`mesEnCurso` se lee del reloj**, no de `new Date()`, para que la página respete la fecha simulada de la suite.
 - **`resetDatos()` conserva la sesión.** Antes borraba todas las claves con el prefijo, incluida `juntos:v1:sesion`.
 - **`fraseDelDia()` usa la fecha local** (`ahora().getDate()`) en vez de la de UTC, que podía dar el día siguiente en un huso horario negativo.
+- **`Bienvenida` crea la sesión.** Antes "Comenzar" solo navegaba. "Iniciar sesión" pasa a estar deshabilitado con el tooltip "Próximamente", con `aria-disabled` en vez de `disabled` para que siga siendo alcanzable con teclado y se oiga el motivo.
 
 ### Decisiones
-- **La sesión sobrevive a restablecer los datos.** Restablecer datos y perder la sesión son dos cosas distintas, y la sesión es el único dato que la app no puede recrear. En esta fase no hay recuperación de sesión, así que borrarla en un botón de "¿quieres volver a empezar?" sería cerrar la puerta sin avisar. `limpiarVersionesAnteriores()` aplica la misma excepción desde antes. Ver `TODO-FASE2 (SEGURIDAD)`.
+- **La sesión no se regenera; los datos sí.** Restablecer datos y perder la sesión son dos cosas distintas, y la sesión es el único dato que la app no puede recrear. En esta fase no hay recuperación de sesión, así que borrarla en un botón de "¿quiero volver a empezar?" sería cerrar la puerta sin avisar. `limpiarVersionesAnteriores()` aplica la misma excepción desde antes. Ver `TODO-FASE2 (SEGURIDAD)`.
+- **La sesión va con versión propia** (`VERSION_SESION`), suelta de la de los datos (`VERSION_DATOS`). Si compartieran número, añadir el campo `origen` a las ideas cerraría la sesión de todo el mundo sin que nadie hubiera hecho nada que lo justificara.
+- **Cerrar sesión borra solo la sesión.** Los datos y las fotos se quedan: es lo contrario de "Restablecer datos", y no se pisan.
+- **Las guardas van en los dos sentidos.** Con sesión ya creada, `/bienvenida` devolvería un "Comenzar" que sobrescribiría el identificador de sesión con uno nuevo sin avisar. Se protege el `Layout` entero y no ruta por ruta: una pantalla nueva entra protegida por defecto, que es lo contrario de lo que se puede olvidar.
+- **"Iniciar sesión" se enseña deshabilitado, no se oculta.** El mockup lo tiene. Con `aria-disabled` y un texto oculto enlazado con `aria-describedby`, porque un `disabled` de verdad quita el botón del orden de tabulación y con teclado no se alcanzaría ni se oiría el motivo.
+- **Si la sesión no se puede guardar, no se navega.** Entrar sin ella dejaría a la persona en Inicio y la guarda la devolvería al instante, con un salto visible que parece un fallo de la app. Se queda en la bienvenida explicando qué ha pasado.
+- **El estado de la sesión se suscribe al evento `storage`, no se relee al pintar.** "Cerrar sesión" no recarga la página, y el evento `storage` no lo dispara la propia pestaña: sin suscripción, el indicador seguiría diciendo que hay sesión y ofrecería cerrar una sesión que ya no existe.
+- **Nada de esto es autenticación, y se dice donde se lee.** La clave se puede escribir a mano desde la consola del navegador. Lo que se guarda solo evita repetir el primer pantallazo. El aviso está en el `sesion.js`, en `App.jsx`, en `main.jsx`, en `docs/SEGURIDAD.md` y en la propia pantalla de Configuración, porque la tentación de tratar "hay sesión" como "está autorizado" aparece justo cuando alguien empieza a usar esto para algo más.
+- **Una sesión con forma inesperada cuenta como no tener sesión.** `leerSesion()` valida que sea un objeto con `id` en formato UUID v4 y `creadaEn` que sea una fecha, y devuelve `null` ante JSON corrupto, un array o una clave escrita a mano. Es preferible volver a la bienvenida que dejar entrar a alguien por un valor que nadie ha validado.
 - **Pulsar un día no escribe en la URL.** Elegir un día es mirar sus eventos, no moverse en el calendario: si quien pulsa "Compartir" mandara a otro día del que quería, el enlace sería peor que no tenerlo. Moverse sí escribe, y ahí la URL es lo que hace el trabajo.
 - **La selección empieza vacía.** Señalar el día de hoy al montar haría que la pantalla fuera distinta en cada apertura. El día resaltado sale de una regla: el seleccionado si está en la vista, si no el primer día con eventos, si no el primero del mes.
-- **`elegirDiaResaltado` y `resaltarCuadricula` viven fuera del componente.** Son reglas de la cuadrícula, no estado de React. Dentro del componente, el `useMemo` del resaltado y el que lo pintaba no se podían conservar: uno invalidaba al otro y acababan pudiendo mostrar días distintos.
+- **`elegirDiaResaltado` y `resaltarCuadricula` viven fuera del componente.** Son reglas de la cuadrícula, no estado de React. Dentro del componente, el `useMemo` del resaltado y el que lo pintaba se podían conservar: uno invalidaba al otro y acababan pudiendo mostrar días distintos.
 - **La vista de día no pinta panel lateral.** `CalendarioDia` ya lista los eventos; repetirlo sería ver lo mismo dos veces en la misma pantalla.
 - **`Configuracion` avisa de dónde viven los datos** y de que no hay nube. Es la misma decisión de la pantalla de bienvenida, escrita donde se va a mirar cuando alguien se pregunta qué guarda la app.
 
 ### Correcciones
+- **El informe y un mensaje de commit decían que la app elegía "la semana con más eventos".** No era así: lo que se abre es la semana que contiene `?fecha=`, y sin ese parámetro, la de hoy. La frase solo era cierta del fixture de pruebas, que elige la semana más poblada para tener días con eventos con los que trabajar. Un informe y un commit afirmaban lo contrario, y podía leerse como que
+el conmutador de vistas no respetaba la URL. Ahora hay dos comprobaciones que lo
+fijan: `?fecha=` gana incluso en una semana sin eventos, y sin `?fecha=` se abre
+la semana del reloj.
 - **El enlace "Mes" conservaba el mes equivocado.** Iba siempre a `/calendario`, así que desde la vista de día de noviembre se volvía a octubre. Ahora lleva el mes del ancla, y solo se deja limpio cuando es el mes en curso, que es la dirección que se comparte.
 - **`mesEnCurso` usaba `new Date()`**, que ignora el reloj inyectado. Con la suite en febrero, "Hoy" quedaba mal deshabilitado.
 - **Ciclo entre `reloj.js` y `fechas.js`.** `reloj.js` importaba `aFecha` de `fechas.js`, y   `fechas.js` pregunta por "hoy" a `reloj.js`. Según el orden de resolución del grafo, `ahora()` podía no existir cuando se la llamaba. El parser se repite ahora en `reloj.js` con las mismas dos funciones de `date-fns`.
 - **Erratas en comentarios y textos**: `sinParameters`, `wheeled` en `src/pages/Calendario.jsx`; `technique` en `src/pages/Configuracion.jsx`; `Úsica`, `keypad` y `cosmeticamente` en `src/services/storage.js`; `sinfiltrar` en `src/services/eventosService.js`. Ninguna llegó a verse en pantalla, y las siete las encontró la lectura del código, no la auditoría automática, que solo detecta caracteres no latinos.
-- **`Configuracion` tenía dos diálogos anidados al confirmar el restablecimiento.** `ConfirmarSalida` se usó dentro del `Modal`: traía su propio `role="alertdialog"`, un título que decía "¿Salir sin guardar?" y sus dos botones, así que la pantalla tenía dos diálogos con dos títulos que se contradecían y cuatro botones para una sola decisión. Se quitó el componente y su detalle pasó a `descripcionAdicional`; el `Modal` ya pone el foco en el panel, así que el botón destructivo queda a un Tab de distancia. Cuatro comprobaciones nuevas lo impiden de volver.
+- **`Configuracion` tenía dos diálogos anidados al confirmar el restablecimiento.** `ConfirmarSalida` se usó dentro del `Modal`: traía su propio `role="alertdialog"`, un título que decía "¿Salir sin guardar?" y sus dos botones, así que la pantalla tenía dos diálogos con dos títulos que se contradecían y cuatro botones para una sola decisión. Se quitó el componente y su detalle pasó a `descripcionAdicional`; el `Modal` ya pone el foco en el panel, así que el botón destructivo queda a un Tab de distancia. Cuatro comprobaciones nuevas lo impiden de volver. El diálogo de cerrar sesión lleva su propio `alertdialog` por el mismo motivo, y no reutiliza `ConfirmarSalida`.
 - **Dos rutas se saltaban el reloj.** `mesDesdeParametro()` declaraba su valor por defecto como `new Date()`, y como los parámetros por defecto se evalúan en cada llamada, esa era también la ruta de `?mes=` cuando faltaba o venía basura: con la suite en diciembre devolvía el mes real del ordenador. Y `crearEvento()` sellaba `creadoEn` con `new Date()`, de modo que un evento creado en prueba quedaba con la fecha real y se colaba entre los de otro mes al ordenarlos. Las dos preguntan ahora al reloj. En producción el reloj no está fijado, así que lo que ve nadie cambia.
 - **Un comentario justificaba mal el código.** `moverDiaCalendario()` decía que `addDays` evita que `setDate` desborde de fin de mes. No era verdad: los dos resuelven el desbordamiento igual, y lo que se gana es no tener que comprobarlo a mano. El comentario estaba corregido para dejar de sonar a error frecuente.
+- **Dos comprobaciones medían el almacén equivocado.** En la sección de DOM del test, `globalThis.window` pasa a ser la ventana de jsdom, que trae su propio `localStorage`; la variable `storage` del principio queda como un almacén muerto. "Y nada se ha borrado todavía" y "la sesión sobrevive al restablecimiento" leían de ahí, así que daban verde sin comprobar nada de lo que la app usa. Ahora leen de `globalThis.window.localStorage`.
 
 ### Verificación
-- `npm test`: 923 comprobaciones, 0 fallos, estable en 3 pasadas seguidas.
-- Fechas simuladas: `npm run test:octubre`, `npm run test:febrero` y `npm run test:diciembre`, las tres con 923 y 0 fallos.
+- `npm test`: 1015 comprobaciones, 0 fallos, estable en 3 pasadas seguidas.
+- Fechas simuladas: `npm run test:octubre`, `npm run test:febrero` y `npm run test:diciembre`, las tres con 1015 y 0 fallos.
 - `npm run lint`: 0 avisos y 0 errores.
 - `npm run build`: correcto.
-- `npm run auditar-codificacion`: 71 ficheros, 0 problemas.
+- `npm run auditar-codificacion`: 73 ficheros, 0 problemas.
+- La sesión se prueba de punta a punta y montada con `App` dentro de un `MemoryRouter`: sin ella, ninguna ruta de dentro del layout enseña nada; con ella, `/bienvenida` salta a Inicio; `Comenzar` guarda la sesión y entra; cerrar sesión borra solo esa clave y devuelve a la bienvenida con los datos intactos.
 - Las tres vistas se prueban montadas, con DOM real y pulsaciones: el conmutador escribe en la URL, las flechas mueven el período de cada vista, "Hoy" vuelve al día en curso, y una URL manipulada (`?vista=trimestre`, `?fecha=2026-10-99`) cae en algo válido sin NaN.
 - Las comprobaciones de las vistas se anclan al reloj y no a octubre de 2026. Con fechas literales, en febrero y diciembre no habría eventos que encontrar y las pruebas pasarían por falta de datos en vez de por funcionamiento.
 - Hay pruebas de cruce de año, no solo de mes: la semana del 28 de diciembre de 2026 al 3 de enero de 2027, y la navegación del 31 de diciembre al 1 de enero. Es justo el caso en el que un título, un índice de día o un salto de semana se rompen sin que en octubre se note.

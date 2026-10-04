@@ -1439,6 +1439,53 @@ comprobar('retroceder una semana resta siete días', ecoUrlDe(appSemana).include
 comprobar('se vuelve a la misma semana', ecoUrlDe(appSemana).includes(`fecha=${LUNES_DE_PARTIDA}`), ecoUrlDe(appSemana));
 comprobar('y el título es el de la semana de partida', appSemana.raiz.querySelector('h2')?.textContent.trim() === semanaAncla.titulo, appSemana.raiz.querySelector('h2')?.textContent ?? 'sin título');
 
+console.log('\n== Paso g: qué semana se abre ==');
+/*
+ * Qué semana se mira lo decide `?fecha=`, y no "la semana con más eventos".
+ *
+ * Estas dos comprobaciones existen porque durante un rato se dio por hecho lo
+ * contrario en un informe y en un mensaje de commit, cuando en realidad el
+ * fixture de pruebas usaba la semana más poblada para tener con qué trabajar. La
+ * diferencia se ve justo en el caso que falta: una semana vacía. Si el código
+ * eligiera la semana más poblada por su cuenta, al abrir una semana sin eventos
+ * saltaría a otra y el `?fecha=` de la URL dejaría de describir lo que se está
+ * enseñando, con lo que "Compartir" mandaría a otra semana.
+ *
+ * El ancla vacía se busca con `moverSemanaCalendario`, que es la propia herramienta
+ * de la app y salta de lunes a lunes, en vez de escribir una fecha fija: el seed
+ * cambia con el mes simulado y una fecha literal quedaría con eventos en octubre
+ * y vacía en febrero. Se barren casi cinco meses, porque en el peor caso puede
+ * no quedar ninguna semana vacía entre la de hoy y las de alrededor.
+ */
+let semanaVaciaAncla = null;
+for (let semana = -6; semana <= 12 && !semanaVaciaAncla; semana += 1) {
+  const candidato = ca.construirSemana(ca.moverSemanaCalendario(ca.aFechaLocal(HOY_PASO_G), semana));
+  const tieneEventos = candidato.celdas.some((celda) => DIAS_CON_EVENTOS.has(celda.fechaISO));
+  if (!tieneEventos) semanaVaciaAncla = candidato;
+}
+comprobar('el seed deja alguna semana vacía que abrir', semanaVaciaAncla !== null, 'no se encontró en 19 semanas');
+
+if (semanaVaciaAncla) {
+  const anclaVacia = semanaVaciaAncla.celdas[0].fechaISO;
+  const appVacia = await montarCalendario(`?vista=semana&fecha=${anclaVacia}`);
+
+  comprobar('`?fecha=` manda: se abre esa semana aunque no tenga eventos', appVacia.raiz.querySelector('h2')?.textContent.trim() === semanaVaciaAncla.titulo, `${appVacia.raiz.querySelector('h2')?.textContent} != ${semanaVaciaAncla.titulo}`);
+  comprobar('y sale marcada la columna del ancla, no la de algún evento', columnaSemana(appVacia.raiz)[0].querySelector('[aria-pressed="true"]') !== null, columnaSemana(appVacia.raiz).map((c) => c.textContent).join(' | '));
+  comprobar('las siete columnas están libres', columnaSemana(appVacia.raiz).every((columna) => columna.textContent.includes('Libre')), columnaSemana(appVacia.raiz).map((c) => c.textContent.trim()).join(' | '));
+  comprobar('y la URL sigue describiendo esa semana', ecoUrlDe(appVacia).includes(`fecha=${anclaVacia}`), ecoUrlDe(appVacia));
+
+  await appVacia.desmontar();
+}
+
+// Sin `?fecha=` no hay de dónde sacar el ancla, así que se usa la semana de hoy.
+const semanaDeHoy = ca.construirSemana(ca.aFechaLocal(HOY_PASO_G));
+const appSinFecha = await montarCalendario('?vista=semana');
+comprobar('sin `?fecha=` se abre la semana de hoy', appSinFecha.raiz.querySelector('h2')?.textContent.trim() === semanaDeHoy.titulo, `${appSinFecha.raiz.querySelector('h2')?.textContent} != ${semanaDeHoy.titulo}`);
+comprobar('y el día resaltado es hoy', columnaSemana(appSinFecha.raiz)[semanaDeHoy.celdas.findIndex((celda) => celda.fechaISO === HOY_PASO_G)]?.querySelector('[aria-pressed="true"]') !== null, columnaSemana(appSinFecha.raiz).map((c) => c.textContent).join(' | '));
+comprobar('y el panel lateral enseña los eventos de hoy', appSinFecha.raiz.querySelector('aside section h2')?.textContent.trim() === fe.formatearFecha(HOY_PASO_G), appSinFecha.raiz.querySelector('aside section h2')?.textContent ?? 'sin título');
+
+await appSinFecha.desmontar();
+
 console.log('\n== Paso g: cambiar de mes y de año con las flechas ==');
 /*
  * Las vistas de semana y de día se mueven con las flechas, y eso tiene que
@@ -2529,6 +2576,36 @@ comprobar('eliminar una idea la quita de la lista', (await ci.getIdeasCitas()).l
 
 console.log('\n== Paso g: Configuración ==');
 const ConfiguracionPagina = (await vite.ssrLoadModule('/src/pages/Configuracion.jsx')).default;
+const se = await vite.ssrLoadModule('/src/services/sesion.js');
+
+/*
+ * ---------------------------------------------------------------------------
+ * Sesión: del servicio al flujo de la pantalla de bienvenida.
+ * ---------------------------------------------------------------------------
+ * Dos avisos sobre lo que sigue, porque los dos son trampas del arnés y no del
+ * código que se está probando.
+ *
+ * EL ALMACÉN NO ES `storage`
+ * `globalThis.window` se sustituye por la ventana de jsdom en el bloque de DOM, y
+ * la de jsdom trae su propio `localStorage`. A partir de ahí la app lee y escribe
+ * en el de jsdom, y la variable `storage` de arriba (el `LocalStorageMock`) queda
+ * como un almacén muerto: sigue teniendo lo que se le escribió antes del cambio.
+ * Comprobar contra `storage` daría verde sobre datos que la app no está usando,
+ * que es justo lo que pasaba con las comprobaciones de "y nada se ha borrado
+ * todavía" y "la sesión sobrevive al restablecimiento". Aquí se lee siempre
+ * `almacen()`.
+ *
+ * EL RELOJ SE FIJA PARA ESTE BLOQUE
+ * Al llegar aquí el reloj ya no está fijado (un bloque anterior lo restableció) y
+ * `ahora()` se mueve entre dos llamadas seguidas. Se fija la fecha simulada para
+ * poder comprobar que la marca de creación de la sesión sale del reloj de la app
+ * y no de `new Date()`, y se restablece al terminar para no alterar lo que viene
+ * después.
+ */
+const almacen = () => globalThis.window.localStorage;
+const claveSesion = st.claveDeSesion();
+const sesionGuardada = () => almacen().getItem(claveSesion);
+const plantarSesion = (valor) => almacen().setItem(claveSesion, valor);
 await ev.resetEventos();
 await ci.resetCitas();
 const montarConfiguracion = () =>
@@ -2540,14 +2617,26 @@ const montarConfiguracion = () =>
     ),
   );
 
+/*
+ * Los recuentos se buscan dentro de su sección, y no por posición.
+ *
+ * Antes se leía el `dd` número 0, 1 y 2 de toda la pantalla. Al añadir la
+ * sección de sesión delante de los datos, esos índices pasaron a señalar la clave
+ * y el estado de la sesión, y las tres comprobaciones de los recuentos dejaron de
+ * medirlos sin decir nada. Un selector por posición no falla al añadir
+ * contenido: deja de comprobar lo que decía comprobar.
+ */
+const seccionDe = (raiz, id) => raiz.querySelector(`#${id}`)?.closest('section') ?? null;
+const datoDe = (raiz, id, indice) => seccionDe(raiz, id)?.querySelectorAll('dd')[indice] ?? null;
+
 const appConfig = await montarConfiguracion();
 // Los recuentos vienen de los services, así que hay que dejar que las promesas
 // se resuelvan antes de mirarlos.
 await act(async () => {});
 
-comprobar('la pantalla cuenta los eventos del seed', appConfig.raiz.querySelector('dd')?.textContent.trim() === '8', appConfig.raiz.querySelector('dd')?.textContent ?? 'sin recuento');
-comprobar('y también las ideas de cita', (appConfig.raiz.querySelectorAll('dd')[1]?.textContent ?? '').trim() === String(sd.crearIdeasSeed().length), appConfig.raiz.querySelectorAll('dd')[1]?.textContent ?? 'sin recuento');
-comprobar('enseña cuánto ocupa', /\d+(\.\d+)?\s?(B|kB|MB)/.test(appConfig.raiz.querySelectorAll('dd')[2]?.textContent ?? ''), appConfig.raiz.querySelectorAll('dd')[2]?.textContent ?? 'sin tamaño');
+comprobar('la pantalla cuenta los eventos del seed', datoDe(appConfig.raiz, 'config-datos', 0)?.textContent.trim() === '8', datoDe(appConfig.raiz, 'config-datos', 0)?.textContent ?? 'sin recuento');
+comprobar('y también las ideas de cita', (datoDe(appConfig.raiz, 'config-datos', 1)?.textContent ?? '').trim() === String(sd.crearIdeasSeed().length), datoDe(appConfig.raiz, 'config-datos', 1)?.textContent ?? 'sin recuento');
+comprobar('enseña cuánto ocupa', /\d+(\.\d+)?\s?(B|kB|MB)/.test(datoDe(appConfig.raiz, 'config-datos', 2)?.textContent ?? ''), datoDe(appConfig.raiz, 'config-datos', 2)?.textContent ?? 'sin tamaño');
 comprobar('avisa de que los datos no salen del dispositivo', appConfig.raiz.textContent.includes('No sale a ningún servidor'), appConfig.raiz.textContent.slice(0, 160));
 comprobar('no promete nada de una nube que no existe', !appConfig.raiz.textContent.includes('nube propia'));
 
@@ -2559,7 +2648,7 @@ comprobar('pregunta antes de borrar', dialogoReset !== null);
 comprobar('la pregunta es un alertdialog', dialogoReset !== null && dialogoReset.getAttribute('aria-modal') === 'true', dialogoReset?.getAttribute('aria-modal') ?? 'sin aria-modal');
 comprobar('avisa de que no se puede deshacer', dialogoReset?.textContent.includes('no se puede deshacer'), dialogoReset?.textContent.slice(0, 120) ?? '');
 comprobar('menciona las fotos, que no tienen copia', dialogoReset?.textContent.includes('fotos'), dialogoReset?.textContent.slice(0, 200) ?? '');
-comprobar('y nada se ha borrado todavía', storage.getItem(st.claveDe(st.COLECCIONES.EVENTOS)) !== null);
+comprobar('y nada se ha borrado todavía', almacen().getItem(st.claveDe(st.COLECCIONES.EVENTOS)) !== null);
 
 /*
  * Un solo diálogo, y con la pregunta correcta.
@@ -2585,15 +2674,17 @@ await appConfig.pulsar(
   'el botón "Cancelar" del diálogo',
 );
 comprobar('cancelar cierra la pregunta', document.querySelector('[role="alertdialog"]') === null);
-comprobar('y deja los datos como estaban', storage.getItem(st.claveDe(st.COLECCIONES.EVENTOS)) !== null);
+comprobar('y deja los datos como estaban', almacen().getItem(st.claveDe(st.COLECCIONES.EVENTOS)) !== null);
 
 // Un evento propio, para comprobar que el recuento baja al restablecer.
 const eventoPropio = await ev.crearEvento({ titulo: 'Para borrar', fecha: fe.hoyISO(), categoria: 'cita' });
 const conPropio = await ev.getEventos();
 comprobar('antes de restablecer hay un evento más', conPropio.length === 9, String(conPropio.length));
 
-// Ahora sí, con la sesión plantada: restablecer no puede echarla.
-storage.setItem(st.claveDeSesion(), '{"parejaId":"p1"}');
+// Ahora sí, con la sesión plantada: restablecer no puede echarla. Se crea con el
+// servicio y no escribiendo la clave a mano, para que la prueba mida con una sesión
+// de verdad y no con un objeto que el código ya no reconocería.
+const sesionDelReset = se.crearSesion();
 await appConfig.pulsar(appConfig.porTexto('button', 'Restablecer datos'), 'el botón "Restablecer datos" otra vez');
 await appConfig.pulsar(
   [...document.querySelectorAll('[role="alertdialog"] button')].find((b) => b.textContent.trim() === 'Sí, restablecer'),
@@ -2603,17 +2694,292 @@ await act(async () => {});
 comprobar('el diálogo se cierra solo al terminar', document.querySelector('[role="alertdialog"]') === null);
 comprobar('vuelve el seed y se va lo propio', (await ev.getEventos()).length === 8, String((await ev.getEventos()).length));
 comprobar('el evento propio ya no está', !(await ev.getEventos()).some((e) => e.id === eventoPropio.id));
-comprobar('el recuento se actualiza en pantalla', appConfig.raiz.querySelector('dd')?.textContent.trim() === '8', appConfig.raiz.querySelector('dd')?.textContent ?? 'sin recuento');
+comprobar('el recuento se actualiza en pantalla', datoDe(appConfig.raiz, 'config-datos', 0)?.textContent.trim() === '8', datoDe(appConfig.raiz, 'config-datos', 0)?.textContent ?? 'sin recuento');
 comprobar('y se le avisa con un rol de estado', appConfig.raiz.querySelector('[role="status"]')?.textContent.includes('Datos restablecidos'), appConfig.raiz.querySelector('[role="status"]')?.textContent ?? 'sin aviso');
-comprobar('la sesión sobrevive al restablecimiento', storage.getItem(st.claveDeSesion()) === '{"parejaId":"p1"}', String(storage.getItem(st.claveDeSesion())));
+comprobar('la sesión sobrevive al restablecimiento', sesionGuardada() === JSON.stringify(sesionDelReset), String(sesionGuardada()));
+comprobar('y sigue siendo una sesión que el código reconoce', se.haySesion() === true, String(sesionGuardada()));
 
 await appConfig.desmontar();
-storage.removeItem(st.claveDeSesion());
+almacen().removeItem(claveSesion);
+await ev.resetEventos();
+await ci.resetCitas();
+
+const PlaneadorPagina = (await vite.ssrLoadModule('/src/pages/Planeador.jsx')).default;
+
+rj.fijarAhora(FECHA_SIMULADA);
+
+console.log('\n== Paso g: el servicio de sesión ==');
+/*
+ * Lo que se guarda es `juntos:v1:sesion`, un objeto con `id` y `creadaEn`.
+ *
+ * La versión de la sesión es propia y no la del esquema de los datos: son dos
+ * cosas que cambian por motivos distintos. Si compartieran versión, subir el
+ * esquema de los eventos borraría la sesión de quien está usando la app, que es
+ * justo lo que `resetDatos()` evita a propósito.
+ */
+almacen().removeItem(claveSesion);
+comprobar('sin clave no hay sesión', se.leerSesion() === null, String(sesionGuardada()));
+comprobar('la versión de la sesión es la suya y no la de los datos', claveSesion === 'juntos:v1:sesion', claveSesion);
+comprobar('y es una clave distinta de la de los datos', claveSesion !== st.claveDe(st.COLECCIONES.EVENTOS), `${claveSesion} vs ${st.claveDe(st.COLECCIONES.EVENTOS)}`);
+
+const sesionCreada = se.crearSesion();
+comprobar('crear devuelve la sesión que ha guardado', se.leerSesion()?.id === sesionCreada?.id, JSON.stringify(sesionCreada));
+comprobar('el identificador tiene forma de UUID v4', va.esIdValido(sesionCreada.id), sesionCreada.id);
+/*
+ * La marca de tiempo sale del reloj inyectado y no de `new Date()`. Con el reloj
+ * fijado a una fecha que no es la de nadie, si saliera del sistema valdría la
+ * fecha real de quien ejecuta la suite y la comprobación solo pasaría por
+ * casualidad en el mes en curso.
+ */
+comprobar('la fecha de creación es la del reloj de la app, no la del ordenador', sesionCreada.creadaEn === rj.ahora().toISOString(), `${sesionCreada.creadaEn} != ${rj.ahora().toISOString()}`);
+comprobar('lo guardado en el almacén es ese mismo objeto', JSON.parse(sesionGuardada())?.id === sesionCreada.id, String(sesionGuardada()));
+
+const sesionSegunda = se.crearSesion();
+comprobar('volver a crear no acumula, sustituye', se.leerSesion().id === sesionSegunda.id && se.leerSesion().id !== sesionCreada.id, se.leerSesion().id);
+
+console.log('\n== Paso g: una sesión rota cuenta como no tener sesión ==');
+/*
+ * `localStorage` se puede editar a mano, se comparte entre pestañas y se queda a
+ * medias si se cierra el navegador escribiendo. Si un valor así se tomara por
+ * bueno, quien no ha pasado por la bienvenida entraría sin pasar por ella, y en
+ * Fase 2 el mismo camino sería un salto de autorización. Por eso todo lo que no
+ * tenga forma de sesión se degrada a `null` y la app vuelve a la bienvenida.
+ */
+const SESIONES_ROTAS = [
+  ['JSON que no se puede interpretar', 'no es json'],
+  ['sin envolver en un objeto', '"solo una cadena"'],
+  ['un array', '[]'],
+  ['sin identificador', JSON.stringify({ creadaEn: rj.ahora().toISOString() })],
+  ['con un identificador que no es UUID', JSON.stringify({ id: 'p1', creadaEn: rj.ahora().toISOString() })],
+  // Con forma de UUID pero de versión 1, que es lo que daría un identificador
+  // antiguo si algún día se llegara a aceptar uno. El validador exige v4.
+  ['con un identificador que es UUID pero no v4', JSON.stringify({ id: '6ba7b810-9dad-11d1-80b4-00c04fd430c8', creadaEn: rj.ahora().toISOString() })],
+  ['sin fecha de creación', JSON.stringify({ id: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' })],
+  ['con una fecha que no es una fecha', JSON.stringify({ id: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed', creadaEn: 'ayer' })],
+];
+for (const [nombre, valor] of SESIONES_ROTAS) {
+  plantarSesion(valor);
+  comprobar(`no cuenta como sesión: ${nombre}`, se.leerSesion() === null && se.haySesion() === false, valor);
+}
+almacen().removeItem(claveSesion);
+
+console.log('\n== Paso g: restablecer datos no cierra la sesión ==');
+await ev.resetEventos();
+const sesionAntesDelReset = se.crearSesion();
+st.resetDatos();
+comprobar('resetDatos() deja la sesión en su sitio', se.leerSesion()?.id === sesionAntesDelReset.id, JSON.stringify(se.leerSesion()));
+comprobar('y la deja intacta, sin reescribirla', sesionGuardada() === JSON.stringify(sesionAntesDelReset), String(sesionGuardada()));
+const sesionAntesDeLimpiar = se.crearSesion();
+const clavesViejasLimpiar = st.limpiarVersionesAnteriores();
+comprobar('limpiarVersionesAnteriores() también la respeta', se.leerSesion()?.id === sesionAntesDeLimpiar.id, `${JSON.stringify(se.leerSesion())} / ${JSON.stringify(clavesViejasLimpiar)}`);
+
+console.log('\n== Paso g: cerrar sesión ==');
+await ev.resetEventos();
+comprobar('con datos guardados hay algo que perder', almacen().getItem(st.claveDe(st.COLECCIONES.EVENTOS)) !== null);
+const sesionAntesDeCerrar = se.crearSesion();
+const cerrada = se.cerrarSesion();
+comprobar('cerrar borra la clave', cerrada === true && se.leerSesion() === null, String(sesionGuardada()));
+comprobar('y no toca los datos ni las fotos', almacen().getItem(st.claveDe(st.COLECCIONES.EVENTOS)) !== null, 'los eventos desaparecieron');
+comprobar('los eventos siguen ahí después de cerrar sesión', (await ev.getEventos()).length > 0, String((await ev.getEventos()).length));
+comprobar('informacionSesion() lo dice sin tener que leer a mano', se.informacionSesion().activa === false && se.informacionSesion().clave === 'juntos:v1:sesion', JSON.stringify(se.informacionSesion()));
+comprobar('y con la sesión puesta la cuenta como activa', (plantarSesion(JSON.stringify(sesionAntesDeCerrar)), se.informacionSesion().activa === true), JSON.stringify(se.informacionSesion()));
+
+console.log('\n== Paso g: las guardas de ruta ==');
+/*
+ * Las guardas se montan con `App` dentro de un `MemoryRouter`, que es como lo
+ * monta `main.jsx`: `App` solo devuelve `<Routes>` y el enrutador va fuera. Así
+ * se puede abrir cualquier ruta sin Historical API.
+ *
+ * El eco de la URL lleva un id propio, distinto del que usan el calendario y el
+ * planeador, porque esas pruebas pueden seguir montadas en el mismo documento y
+ * `document.getElementById` devolvería siempre la primera.
+ */
+const AppRaiz = (await vite.ssrLoadModule('/src/App.jsx')).default;
+const EcoDeSesion = () => ReactCjs.createElement('p', { id: 'eco-url-sesion' }, useLocation().pathname);
+
+const montarApp = (ruta) =>
+  montar(
+    ReactCjs.createElement(
+      MemoryRouter,
+      { initialEntries: [ruta] },
+      ReactCjs.createElement(AppRaiz),
+      ReactCjs.createElement(EcoDeSesion),
+    ),
+  );
+const rutaDe = (app) => app.raiz.querySelector('#eco-url-sesion')?.textContent ?? '';
+const botonComenzar = (raiz) => [...raiz.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Comenzar');
+const hayBotonComenzar = (raiz) => botonComenzar(raiz) !== undefined;
+/*
+ * El `Layout` es lo que distingue "dentro de la app" de "en la bienvenida": la
+ * navegación principal solo existe con sesión. Sidebar y BottomNav comparten
+ * nombre accesible, así que el mismo selector sirve para los dos anchos.
+ */
+const dentroDeLaApp = (raiz) => raiz.querySelector('nav[aria-label="Navegación principal"]') !== null;
+
+console.log('\n== Paso g: sin sesión, la app no se ve ==');
+almacen().removeItem(claveSesion);
+const guardasSinSesion = ['/', '/calendario', '/galeria', '/planeador', '/configuracion', '/momentos'];
+for (const ruta of guardasSinSesion) {
+  const app = await montarApp(ruta);
+  await act(async () => {});
+  comprobar(`${ruta} sin sesión va a la bienvenida`, rutaDe(app) === '/bienvenida', rutaDe(app));
+  comprobar(`  y no deja ver la app en ${ruta}`, hayBotonComenzar(app.raiz) && !dentroDeLaApp(app.raiz), rutaDe(app));
+  await app.desmontar();
+}
+
+const appRutaInexistente = await montarApp('/no-existe');
+await act(async () => {});
+comprobar('una ruta que no existe también acaba en la bienvenida', rutaDe(appRutaInexistente) === '/bienvenida', rutaDe(appRutaInexistente));
+await appRutaInexistente.desmontar();
+
+console.log('\n== Paso g: con sesión, la bienvenida no se ve ==');
+const sesionDePrueba = se.crearSesion();
+for (const ruta of ['/', '/calendario', '/configuracion']) {
+  const app = await montarApp(ruta);
+  await act(async () => {});
+  comprobar(`${ruta} con sesión se ve en su sitio`, rutaDe(app) === ruta, rutaDe(app));
+  comprobar(`  y no salta a la bienvenida desde ${ruta}`, !hayBotonComenzar(app.raiz), rutaDe(app));
+  await app.desmontar();
+}
+const appVolverA = await montarApp('/bienvenida');
+await act(async () => {});
+comprobar('con sesión, /bienvenida salta a Inicio', rutaDe(appVolverA) === '/', rutaDe(appVolverA));
+comprobar('y no enseña el botón "Comenzar"', !hayBotonComenzar(appVolverA.raiz), appVolverA.raiz.textContent.slice(0, 120));
+await appVolverA.desmontar();
+
+console.log('\n== Paso g: la pantalla de bienvenida ==');
+/*
+ * Sin montar `App`, para poder mirar el botón deshabilitado sin que la guarda
+ * contraria lo sustituya por un `Navigate` en el primer render.
+ */
+const BienvenidaPagina = (await vite.ssrLoadModule('/src/pages/Bienvenida.jsx')).default;
+almacen().removeItem(claveSesion);
+const montarBienvenida = () =>
+  montar(
+    ReactCjs.createElement(
+      MemoryRouter,
+      { initialEntries: ['/bienvenida'] },
+      ReactCjs.createElement(BienvenidaPagina),
+      ReactCjs.createElement(EcoDeSesion),
+    ),
+  );
+
+const appBienvenida = await montarBienvenida();
+comprobar('la bienvenida está fuera del layout', !dentroDeLaApp(appBienvenida.raiz), appBienvenida.raiz.textContent.slice(0, 120));
+comprobar('enseña el texto del mockup', appBienvenida.raiz.textContent.includes('Crea recuerdos, planea nuevas aventuras y sigue escribiendo tu historia juntos.'), appBienvenida.raiz.textContent.slice(0, 200));
+comprobar('y el lema de la marca', appBienvenida.raiz.textContent.includes('Tus momentos, siempre'), appBienvenida.raiz.textContent.slice(0, 200));
+comprobar('tiene el botón "Comenzar"', hayBotonComenzar(appBienvenida.raiz));
+
+const botonSesion = [...appBienvenida.raiz.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Iniciar sesión');
+comprobar('y el de "Iniciar sesión"', botonSesion !== null);
+/*
+ * `aria-disabled` y no `disabled`: un botón `disabled` no recibe el foco, así que
+ * con teclado no se llegaría a él ni se oiría el motivo de que no esté activo.
+ * Con `aria-disabled` sigue siendo enfocable y el motivo llega por dos vías.
+ */
+comprobar('"Iniciar sesión" está deshabilitado para lector de pantalla', botonSesion?.getAttribute('aria-disabled') === 'true', String(botonSesion?.getAttribute('aria-disabled')));
+comprobar('y no con el atributo `disabled`, para que siga siendo enfocable', !botonSesion?.hasAttribute('disabled'), String(botonSesion?.hasAttribute('disabled')));
+comprobar('el puntero recibe el "Próximamente" como tooltip', botonSesion?.getAttribute('title') === 'Próximamente', String(botonSesion?.getAttribute('title')));
+const descritoPorBoton = botonSesion?.getAttribute('aria-describedby') ?? '';
+const textoDescritoPorBoton = descritoPorBoton ? document.getElementById(descritoPorBoton)?.textContent ?? '' : '';
+comprobar('el lector de pantalla oye el motivo', textoDescritoPorBoton.trim() === 'Próximamente', `${descritoPorBoton}: "${textoDescritoPorBoton}"`);
+
+// Pulsar el botón deshabilitado no hace nada: ni navegar ni crear sesión.
+await appBienvenida.pulsar(botonSesion, 'el botón "Iniciar sesión"');
+comprobar('pulsarlo no crea sesión', se.leerSesion() === null, String(sesionGuardada()));
+comprobar('ni mueve de la bienvenida', rutaDe(appBienvenida) === '/bienvenida', rutaDe(appBienvenida));
+
+/*
+ * El resto del flujo va montado con `App`, no con la página suelta. Es la
+ * diferencia entre "el botón crea la sesión" y "el botón crea la sesión y lleva a
+ * Inicio": con la página montada sola, `navegar()` cambia la URL pero no
+ * desmonta nada, porque no hay rutas que cambien de elemento. Las rutas reales
+ * son las que hacen aparecer el `Layout` y las que hacen desaparecer la
+ * bienvenida.
+ */
+console.log('\n== Paso g: de la bienvenida al calendario ==');
+almacen().removeItem(claveSesion);
+const appFlujo = await montarApp('/bienvenida');
+await act(async () => {});
+comprobar('sin sesión, /bienvenida se ve', rutaDe(appFlujo) === '/bienvenida' && hayBotonComenzar(appFlujo.raiz), rutaDe(appFlujo));
+
+await appFlujo.pulsar(botonComenzar(appFlujo.raiz), 'el botón "Comenzar" de la bienvenida');
+await act(async () => {});
+const sesionTrasComenzar = se.leerSesion();
+comprobar('"Comenzar" guarda la sesión', sesionTrasComenzar !== null && va.esIdValido(sesionTrasComenzar.id), JSON.stringify(sesionTrasComenzar));
+comprobar('con un identificador distinto del de antes', sesionTrasComenzar?.id !== sesionDePrueba.id, `${sesionTrasComenzar?.id} != ${sesionDePrueba.id}`);
+comprobar('y lleva a Inicio', rutaDe(appFlujo) === '/', rutaDe(appFlujo));
+comprobar('donde ya se ve la app, con su navegación', dentroDeLaApp(appFlujo.raiz), appFlujo.raiz.textContent.slice(0, 120));
+comprobar('y la bienvenida ya no está', !hayBotonComenzar(appFlujo.raiz), appFlujo.raiz.textContent.slice(0, 120));
+await appFlujo.desmontar();
+
+// Y con la sesión ya creada, la app entera se abre sin pasar por la bienvenida.
+const appTrasComenzar = await montarApp('/calendario');
+await act(async () => {});
+comprobar('recargar el calendario ya no vuelve a la bienvenida', rutaDe(appTrasComenzar) === '/calendario', rutaDe(appTrasComenzar));
+await appTrasComenzar.desmontar();
+
+console.log('\n== Paso g: cerrar sesión desde Configuración ==');
+const sesionVisible = se.crearSesion();
+await ev.resetEventos();
+// Montada con `App` para que la navegación a la bienvenida desmonte la pantalla,
+// como en la app de verdad.
+const appCierre = await montarApp('/configuracion');
+await act(async () => {});
+comprobar('Configuración se ve con la sesión puesta', rutaDe(appCierre) === '/configuracion' && seccionDe(appCierre.raiz, 'config-sesion') !== null, rutaDe(appCierre));
+comprobar('el indicador dice que hay sesión', (seccionDe(appCierre.raiz, 'config-sesion')?.textContent ?? '').includes('Sesión activa'), seccionDe(appCierre.raiz, 'config-sesion')?.textContent.slice(0, 160) ?? 'sin sección');
+comprobar('enseña la clave con su versión', (seccionDe(appCierre.raiz, 'config-sesion')?.textContent ?? '').includes('juntos:v1:sesion'), seccionDe(appCierre.raiz, 'config-sesion')?.textContent.slice(0, 160) ?? 'sin sección');
+comprobar('y no dice que sea una cuenta', (seccionDe(appCierre.raiz, 'config-sesion')?.textContent ?? '').includes('no es una cuenta'), seccionDe(appCierre.raiz, 'config-sesion')?.textContent.slice(0, 200) ?? 'sin sección');
+comprobar('ofrece cerrar sesión', appCierre.porTexto('button', 'Cerrar sesión') !== null);
+
+await appCierre.pulsar(appCierre.porTexto('button', 'Cerrar sesión'), 'el botón "Cerrar sesión"');
+const dialogoCierre = document.querySelector('[role="alertdialog"]');
+comprobar('pregunta antes de cerrar', dialogoCierre !== null);
+comprobar('con el título de cerrar sesión', dialogoCierre?.querySelector('h2')?.textContent.trim() === '¿Cerrar la sesión?', dialogoCierre?.querySelector('h2')?.textContent ?? 'sin título');
+comprobar('no hay dos diálogos montados a la vez', document.querySelectorAll('[role="alertdialog"]').length === 1, String(document.querySelectorAll('[role="alertdialog"]').length));
+comprobar('no se cuela el aviso de salir sin guardar', !dialogoCierre?.textContent.includes('Salir sin guardar'), dialogoCierre?.textContent.slice(0, 120) ?? '');
+comprobar('avisa de que los datos no se borran', /no borra nada/.test(dialogoCierre?.textContent ?? ''), dialogoCierre?.textContent.slice(0, 200) ?? '');
+comprobar('y nada se ha cerrado todavía', se.leerSesion()?.id === sesionVisible.id);
+
+await appCierre.pulsar(
+  [...document.querySelectorAll('[role="alertdialog"] button')].find((b) => b.textContent.trim() === 'Cancelar'),
+  'el botón "Cancelar" del diálogo de cierre',
+);
+comprobar('cancelar cierra la pregunta', document.querySelector('[role="alertdialog"]') === null);
+comprobar('y deja la sesión como estaba', se.leerSesion()?.id === sesionVisible.id, JSON.stringify(se.leerSesion()));
+comprobar('y no cambia de pantalla', rutaDe(appCierre) === '/configuracion', rutaDe(appCierre));
+
+await appCierre.pulsar(appCierre.porTexto('button', 'Cerrar sesión'), 'el botón "Cerrar sesión" otra vez');
+await appCierre.pulsar(
+  [...document.querySelectorAll('[role="alertdialog"] button')].find((b) => b.textContent.trim() === 'Sí, cerrar sesión'),
+  'el botón "Sí, cerrar sesión"',
+);
+await act(async () => {});
+comprobar('la sesión queda cerrada', se.leerSesion() === null, String(sesionGuardada()));
+comprobar('y se vuelve a la bienvenida', rutaDe(appCierre) === '/bienvenida', rutaDe(appCierre));
+comprobar('que ya tiene su botón otra vez', hayBotonComenzar(appCierre.raiz), appCierre.raiz.textContent.slice(0, 160));
+comprobar('los datos siguen guardados', almacen().getItem(st.claveDe(st.COLECCIONES.EVENTOS)) !== null, 'los eventos desaparecieron');
+await appCierre.desmontar();
+
+/*
+ * Y una vez cerrada, volver a abrir Configuración por la URL ya no la enseña:
+ * la guarda de `App` manda a la bienvenida antes de que se monte la pantalla.
+ * Sin esto, se podría seguir viendo el indicador y pulsar "Cerrar sesión" sobre
+ * una sesión que no existe.
+ */
+const appCierreUrl = await montarApp('/configuracion');
+await act(async () => {});
+comprobar('tras cerrar sesión, /configuracion ya no se ve', rutaDe(appCierreUrl) === '/bienvenida' && hayBotonComenzar(appCierreUrl.raiz), rutaDe(appCierreUrl));
+await appCierreUrl.desmontar();
+
+// El reloj vuelve al del sistema para lo que venga después, que es lo que había
+// al entrar en este bloque.
+rj.restablecerAhora();
+almacen().removeItem(claveSesion);
 await ev.resetEventos();
 await ci.resetCitas();
 
 console.log('\n== Paso e: la página del planeador ==');
-const PlaneadorPagina = (await vite.ssrLoadModule('/src/pages/Planeador.jsx')).default;
 
 const montarPlaneador = (busqueda = '') =>
   montar(

@@ -290,6 +290,63 @@ export function guardar(coleccion, datos) {
 }
 
 /**
+ * Lee una clave suelta, sin asumir que sea una colección.
+ *
+ * POR QUÉ EXISTE
+ * `leer()` y `guardar()` asumen un array de la forma de `COLECCIONES`, y la
+ * sesión no es eso: es un objeto con su propia versión. Forzarla por el mismo
+ * camino habría hecho que `leer()` mintiera sobre su contrato, o que la sesión
+ * se guardara como un array de un elemento.
+ *
+ * @param {string} clave Clave completa, con prefijo y versión.
+ * @returns {unknown} El valor deserializado, o `null` si no hay nada utilizable.
+ * @example
+ * leerClave(claveDeSesion()); // { id: '1b9d…', creadaEn: '2026-10-02T…' }
+ */
+export function leerClave(clave) {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return null;
+
+    const texto = window.localStorage.getItem(clave);
+    if (texto === null) return null;
+
+    return JSON.parse(texto);
+  } catch (error) {
+    console.error(`[storage] Error al leer "${clave}". Se asumirá como si no estuviera.`, error);
+    return null;
+  }
+}
+
+/**
+ * Escribe una clave suelta.
+ *
+ * Mismo motivo que {@link leerClave}: la sesión no es una colección.
+ *
+ * @param {string} clave Clave completa, con prefijo y versión.
+ * @param {unknown} valor Valor a serializar.
+ * @returns {boolean} `true` si se escribió.
+ * @throws {ErrorCuotaAlmacenamiento} Si no se puede escribir por cuota.
+ */
+export function escribirClave(clave, valor) {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      throw new Error('localStorage no está disponible en este entorno.');
+    }
+
+    window.localStorage.setItem(clave, JSON.stringify(valor));
+    return true;
+  } catch (error) {
+    if (esCuotaAgotada(error)) {
+      throw new ErrorCuotaAlmacenamiento(
+        'No hay espacio suficiente para guardar. Prueba con una foto más pequeña o borra alguna.',
+      );
+    }
+
+    throw error;
+  }
+}
+
+/**
  * Borra una colección.
  *
  * @param {string} coleccion Colección a eliminar, de {@link COLECCIONES}.
@@ -304,6 +361,30 @@ export function borrar(coleccion) {
     return true;
   } catch (error) {
     console.error(`[storage] No se pudo borrar "${coleccion}".`, error);
+    return false;
+  }
+}
+
+/**
+ * Borra una clave suelta, con la clave completa.
+ *
+ * Lo usa "Cerrar sesión" sobre la clave de sesión, que no es una colección.
+ * `resetDatos()` no lo usa: borra un grupo de claves enumeradas dentro de un
+ * único `try`, y meter aquí un `try` por clave lo que haría es tragarse el error
+ * de la primera y devolver `true` sin haber borrado todas.
+ *
+ * @param {string} clave Clave completa, con prefijo y versión.
+ * @returns {boolean} `true` si se borró.
+ * @example
+ * borrarClave(claveDeSesion());
+ */
+export function borrarClave(clave) {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return false;
+    window.localStorage.removeItem(clave);
+    return true;
+  } catch (error) {
+    console.error(`[storage] No se pudo borrar "${clave}".`, error);
     return false;
   }
 }

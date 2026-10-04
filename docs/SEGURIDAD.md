@@ -170,30 +170,65 @@ Cada día es un `button` con `aria-label` (`"14 de octubre, 3 eventos"`), `aria-
 
 Para datos de ejemplo está bien. Para recuerdos reales de una pareja **no**.
 
-### El login es simulado
+### La sesión es una bandera en `localStorage`, no autenticación
 
-`/bienvenida` tiene un botón "Comenzar" que navega a `/`. No hay autenticación, no hay sesión, no hay token, no hay contraseña. Cualquiera que abra la app entra.
+`/bienvenida` tiene un botón "Comenzar" que crea la sesión en `juntos:v1:sesion` y
+navega a `/`. El botón "Iniciar sesión" está deshabilitado con el tooltip
+"Próximamente".
 
-`PERFIL_PAREJA` ("Tú y Yo", "12 abr 2024") es una constante en `src/constants/nav.js`, editable por cualquiera desde el código.
+**Esto no es autenticación y no debe usarse como si lo fuera.** Lo que se guarda
+es un objeto con un identificador y una fecha:
 
-### La sesión tendrá su propia versión, no la de los datos
+```json
+{ "id": "8c1f…", "creadaEn": "2026-10-02T15:00:00.000Z" }
+```
+
+No hay correo, ni contraseña, ni token, ni nada que un servidor pueda verificar.
+La clave se puede escribir a mano desde la consola del navegador:
+
+```js
+localStorage.setItem('juntos:v1:sesion', '{"id":"…","creadaEn":"…"}');
+```
+
+Con eso se entra. Y al revés: borrar la clave echa a la pareja fuera de su propio
+calendario sin que nadie haya hecho nada.
+
+Lo único que aporta es no repetir el primer pantallazo en este navegador. Por eso:
+
+- `ConSesion` y `SinSesion` en `src/App.jsx` son **guardas de navegación**, no
+  controles de acceso. Protegen la vista, no los datos.
+- `leerSesion()` valida la forma del valor (objeto, `id` con formato UUID v4,
+  `creadaEn` que sea una fecha) y devuelve `null` ante cualquier cosa que no
+  encaje. JSON corrupto, un array, un `id` inventado o una clave puesta a mano se
+  tratan como "no hay sesión": es preferible volver a la bienvenida que dejar
+  entrar a alguien por un valor que nadie ha validado.
+- La sección de sesión de `Configuración` lo dice en la propia pantalla, con las
+  palabras "no es una cuenta ni una autenticación", para que quien lo lea no se
+  lleve a la Fase 2 la idea de que ya está resuelto.
+- `PERFIL_PAREJA` ("Tú y Yo", "12 abr 2024") es una constante en
+  `src/constants/nav.js`, editable por cualquiera desde el código.
+
+### La sesión tiene su propia versión, no la de los datos
 
 En `src/services/storage.js` hay **dos** números de versión, y no deben unificarse:
 
 | Constante | Versiona | Al subirla |
 |---|---|---|
 | `VERSION_DATOS` (3) | La forma de `Evento` e `IdeaCita` | La app deja de leer `juntos:v2:*` y vuelve a sembrar |
-| `VERSION_SESION` (1) | Lo que guarde la sesión, cuando exista | Nada: la sesión se conserva |
+| `VERSION_SESION` (1) | La forma del objeto de sesión | Nada: la sesión se conserva |
 
 El motivo es de seguridad y de respeto a quien está usando la app. La sesión es el único dato que **no se puede regenerar**: el seed de eventos se vuelve a sembrar solo tras un cambio de esquema, pero una sesión no. Si compartieran número de versión, añadir el campo `origen` a las ideas cerraría la sesión de todas las parejas que tuvieran la app abierta, sin que nadie hubiera hecho nada que lo justificara.
 
 Consecuencias asumidas en el código:
 
 - `claveDeSesion()` no delega en `claveDe()`, para que el desacople sea explícito y no dependa de acordarse de pasar la versión correcta.
-- `limpiarVersionesAnteriores()` **conserva siempre** la clave de sesión. Es la única que no se puede recuperar si se borra.
-- La constante ya existe aunque la sesión todavía no se escriba, para que cuando se implemente la clave salga bien sin tener que revisar nada.
+- `resetDatos()` y `limpiarVersionesAnteriores()` **conservan siempre** la clave de sesión. Es la única que no se puede recuperar si se borra.
+- Lo contrario también es deliberado: `cerrarSesion()` borra la sesión y **no toca** los datos ni las fotos. Restablecer datos y cerrar sesión son operaciones distintas y no se pisan.
 
-**En Fase 2 desaparece y no se sustituye:** la sesión pasa a vivir en la cookie de Supabase Auth, en el servidor, fuera del alcance del navegador. Ahí el versioning del cliente no aplica. Lo que sí se conserva es el criterio: la sesión nunca se invalida por un cambio en la forma de los datos.
+**En Fase 2 desaparece y no se sustituye:** la sesión pasa a vivir en la cookie de
+Supabase Auth, en el servidor, fuera del alcance del navegador. Ahí el versioning
+del cliente no aplica. Lo que sí se conserva es el criterio: la sesión nunca se
+invalida por un cambio en la forma de los datos.
 
 ### Los datos no están autorizados por pareja
 
@@ -250,8 +285,8 @@ preguntar en ese caso enseña a confirmar sin leer.
 
 | # | Tarea | Dónde | Por qué importa |
 |---|---|---|---|
-| 1 | **Autenticación real** (correo + OTP, o proveedor) | `pages/Bienvenida.jsx`, `main.jsx` | Hoy el acceso es simulado. |
-| 2 | **Sesión verificada en servidor** | Routes de React Router | Un token de cliente no se puede confiar. |
+| 1 | **Autenticación real** (correo + OTP, o proveedor) | `pages/Bienvenida.jsx` | Hoy "Comenzar" solo escribe una bandera en `localStorage`. |
+| 2 | **Sesión verificada en servidor** | `services/sesion.js`, `App.jsx` | `ConSesion`/`SinSesion` comprueban una clave del cliente, que cualquiera escribe. Sustituirlas por la sesión de Supabase Auth. |
 | 3 | **Tabla `parejas` + `pareja_id` en todas las entidades** | Esquema de Supabase | Sin esto no hay separación entre parejas. |
 | 4 | **Row Level Security** | Políticas de Supabase | Es la barrera real: el usuario solo ve sus filas, aunque manipule las peticiones. |
 | 5 | **Validación server-side** (mismas reglas de `validaciones.js`) | Edge function o trigger | La validación del cliente es solo UX. |
@@ -261,7 +296,7 @@ preguntar en ese caso enseña a confirmar sin leer.
 | 9 | **Sanitización en servidor** | Edge function | Última línea si algún día se acepta HTML/Markdown. |
 | 10 | **Rate limiting** | Edge function / Supabase | Evita abuso de escritura. |
 | 11 | **Cifrado en reposo y backups** | Supabase | Los recuerdos son datos personales de una pareja. |
-| 12 | **Exportar / borrar datos (derecho al olvido)** | `Configuracion.jsx` | La pareja debe poder llevarse o borrar su información. |
+| 12 | **Exportar / borrar datos (derecho al olvido)** | `Configuracion.jsx` | La pareja debe poder llevarse o borrar su información. Hoy "Restablecer datos" es lo más cerca que hay, pero es una operación global y no una exportación. |
 | 13 | **Consentimiento y aviso de privacidad** | `Bienvenida.jsx` | Se guardan fotos de personas. |
 | 14 | **CSP (Content-Security-Policy)** | Cabeceras de despliegue | Defensa en profundidad ante XSS. |
 

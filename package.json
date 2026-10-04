@@ -9,6 +9,9 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "node test-datos.mjs",
+    "test:octubre": "node test-datos.mjs 2026-10-02",
+    "test:febrero": "node test-datos.mjs 2027-02-28",
+    "test:diciembre": "node test-datos.mjs 2026-12-31",
     "auditar-codificacion": "node scripts/auditar-codificacion.mjs"
   },
   "dependencies": {

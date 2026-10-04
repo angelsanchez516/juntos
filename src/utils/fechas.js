@@ -23,7 +23,7 @@ import {
   format,
   isAfter,
   isBefore,
-  isToday,
+  isSameDay,
   isValid,
   parseISO,
   startOfDay,
@@ -31,6 +31,8 @@ import {
 } from 'date-fns';
 
 import { es } from 'date-fns/locale';
+
+import { ahora } from './reloj';
 
 /** Locale único de la app. Toda la interfaz está en español. */
 export const LOCALE = es;
@@ -117,12 +119,16 @@ export function formatearHora(hora) {
 /**
  * Devuelve la fecha de hoy en formato `YYYY-MM-DD` (hora local).
  *
+ * El día en curso se pide al reloj de `src/utils/reloj.js`, no a `new Date()`
+ * directamente. Así las pruebas pueden fijar el día y comprobar el seed y la
+ * interfaz con fechas concretas.
+ *
  * @returns {string} Fecha de hoy como `YYYY-MM-DD`.
  * @example
- * const hoy = hoyISO(); // '2026-09-29'
+ * const hoy = hoyISO(); // '2026-10-02'
  */
 export function hoyISO() {
-  return format(new Date(), 'yyyy-MM-dd');
+  return format(ahora(), 'yyyy-MM-dd');
 }
 
 /**
@@ -141,15 +147,19 @@ export function hoyISO() {
  * @param {number} dia Día del mes, de 1 a 31.
  * @param {number} [mesRelativo] Meses a avanzar desde el actual. `0` = mes
  *   actual (por defecto), `1` = siguiente.
+ * @param {Date} [referencia] Instante cuyo mes ancla el resultado. Por
+ *   defecto, el reloj de `src/utils/reloj.js`, que fuera de las pruebas es el
+ *   reloj real.
  * @returns {string} Fecha en `YYYY-MM-DD`.
  * @example
- * diaDelMes(12);     // '2026-09-12' si estamos en septiembre de 2026
- * diaDelMes(14, 1);  // '2026-10-14' (octubre, para eventos futuros)
+ * diaDelMes(12);     // '2026-10-12' si estamos en octubre de 2026
+ * diaDelMes(14, 1);  // '2026-11-14' (noviembre, para eventos futuros)
+ * diaDelMes(5, 0, new Date(2027, 1, 28)); // '2027-02-05'
  */
-export function diaDelMes(dia, mesRelativo = 0) {
+export function diaDelMes(dia, mesRelativo = 0, referencia = ahora()) {
   // `setMonth` sobre el día 1 evita que el desbordamiento de meses cortos
   // arrastre el día antes de tiempo.
-  const mesBase = startOfMonth(new Date());
+  const mesBase = startOfMonth(referencia);
   const mesObjetivo = new Date(mesBase);
   mesObjetivo.setMonth(mesObjetivo.getMonth() + mesRelativo);
 
@@ -249,15 +259,17 @@ export function agruparPorFecha(eventos) {
  * Traduce un día a una etiqueta relativa ("Hoy", "Mañana", "Ayer").
  *
  * @param {string} fechaISO Fecha a describir.
+ * @param {Date} [referencia] Instante con el que se compara. Por defecto, el
+ *   reloj de `src/utils/reloj.js`.
  * @returns {string} Etiqueta relativa, o `null` si está a más de una semana.
  * @example
- * etiquetaRelativa('2026-09-29'); // 'Hoy'
+ * etiquetaRelativa('2026-10-02'); // 'Hoy'
  */
-export function etiquetaRelativa(fechaISO) {
+export function etiquetaRelativa(fechaISO, referencia = ahora()) {
   const fecha = aFecha(fechaISO);
   if (!fecha) return null;
 
-  const dias = differenceInCalendarDays(fecha, new Date());
+  const dias = differenceInCalendarDays(fecha, referencia);
 
   if (dias === 0) return 'Hoy';
   if (dias === 1) return 'Mañana';
@@ -270,40 +282,50 @@ export function etiquetaRelativa(fechaISO) {
 /**
  * Indica si la fecha es hoy.
  *
+ * Compara contra el reloj de `src/utils/reloj.js` con `isSameDay` en vez de
+ * usar `isToday` de `date-fns`, porque aquel lee `new Date()` por dentro y
+ * saltaría la referencia fijada por las pruebas.
+ *
  * @param {string} fechaISO Fecha a comprobar.
+ * @param {Date} [referencia] Instante con el que se compara. Por defecto, el
+ *   reloj de `src/utils/reloj.js`.
  * @returns {boolean} `true` si es el día actual.
  * @example
- * esHoy('2026-09-29'); // true
+ * esHoy('2026-10-02'); // true
  */
-export function esHoy(fechaISO) {
+export function esHoy(fechaISO, referencia = ahora()) {
   const fecha = aFecha(fechaISO);
-  return fecha ? isToday(fecha) : false;
+  return fecha ? isSameDay(fecha, referencia) : false;
 }
 
 /**
  * Indica si una fecha ya pasó respecto a hoy.
  *
  * @param {string} fechaISO Fecha a comprobar.
+ * @param {Date} [referencia] Instante con el que se compara. Por defecto, el
+ *   reloj de `src/utils/reloj.js`.
  * @returns {boolean} `true` si la fecha es anterior a hoy.
  * @example
- * estaPasada('2026-09-01'); // true
+ * estaPasada('2026-10-01'); // true
  */
-export function estaPasada(fechaISO) {
+export function estaPasada(fechaISO, referencia = ahora()) {
   const fecha = aFecha(fechaISO);
-  return fecha ? isBefore(startOfDay(fecha), startOfDay(new Date())) : false;
+  return fecha ? isBefore(startOfDay(fecha), startOfDay(referencia)) : false;
 }
 
 /**
  * Número de días que faltan para una fecha.
  *
  * @param {string} fechaISO Fecha destino.
+ * @param {Date} [referencia] Instante desde el que se cuenta. Por defecto, el
+ *   reloj de `src/utils/reloj.js`.
  * @returns {number} Días hasta la fecha. Negativo si ya pasó.
  * @example
- * diasHasta('2026-10-01'); // 2
+ * diasHasta('2026-10-04'); // 2
  */
-export function diasHasta(fechaISO) {
+export function diasHasta(fechaISO, referencia = ahora()) {
   const fecha = aFecha(fechaISO);
-  return fecha ? differenceInCalendarDays(fecha, new Date()) : 0;
+  return fecha ? differenceInCalendarDays(fecha, referencia) : 0;
 }
 
 /**

@@ -18,12 +18,13 @@
  * pasado, se desplazan al mes siguiente para que siempre haya pasado y futuro.
  *
  * Related: src/services/eventosService.js, src/services/citasService.js,
- * src/utils/fechas.js
+ * src/utils/fechas.js, src/utils/reloj.js
  *
  * @module data/seed
  */
 
 import { diaDelMes } from '../utils/fechas';
+import { ahora } from '../utils/reloj';
 import { CATEGORIA, CATEGORIA_IDEA } from '../utils/categorias';
 import { ORIGEN } from '../types/models';
 
@@ -109,107 +110,111 @@ export function fotoPlaceholder(semilla, ancho = 800, alto = 600) {
  * - **Mes siguiente:** cine (5) y un segundo aniversario (12), que en el
  *   mockup ya habían pasado y aquí sirven de próximos.
  *
+ * @param {Date} [fechaReferencia] Instante cuyo mes y año anclan las fechas. Por
+ *   defecto, el reloj de `src/utils/reloj.js`. Se pasa explícito para poder
+ *   sembrar un mes concreto desde una prueba sin tocar el reloj global.
  * @returns {Array<import('../types/models.js').Evento>} Eventos nuevos, con sus
- *   fechas ya resueltas a fechas del mes en curso.
+ *   fechas ya resueltas a fechas del mes indicado.
  * @example
  * const eventos = crearEventosSeed();
- * eventos[0].fecha; // '2026-09-12'
+ * eventos[0].fecha; // '2026-10-12'
+ * crearEventosSeed(new Date(2027, 1, 28))[0].fecha; // '2027-02-12'
  */
-export function crearEventosSeed() {
+export function crearEventosSeed(fechaReferencia = ahora()) {
   return [
     {
       id: IDS_SEED.ANIVERSARIO_PASADO,
       titulo: 'Nuestro aniversario',
-      fecha: diaDelMes(12, 1),
+      fecha: diaDelMes(12, 1, fechaReferencia),
       hora: null,
       descripcion:
         'El primer año juntos. Luego veníamos a cenar aquí cada mes, y cada vez nos contábamos más cosas.',
       lugar: 'Casa',
       categoria: CATEGORIA.ANIVERSARIO,
       foto: fotoPlaceholder('aniversario-pasado', 1200, 800),
-      creadoEn: new Date().toISOString(),
+      creadoEn: fechaReferencia.toISOString(),
     },
     {
       id: IDS_SEED.ANIVERSARIO,
       titulo: 'Nuestro aniversario',
-      fecha: diaDelMes(12),
+      fecha: diaDelMes(12, 0, fechaReferencia),
       hora: null,
       descripcion:
         'Dos años desde que empezó todo. No lo planeamos, pero salió perfecto. Vamos a celebrarlo con algo dulce y mucho tiempo sin mirar el reloj.',
       lugar: 'Casa',
       categoria: CATEGORIA.ANIVERSARIO,
       foto: fotoPlaceholder('aniversario', 1200, 800),
-      creadoEn: new Date().toISOString(),
+      creadoEn: fechaReferencia.toISOString(),
     },
     {
       id: IDS_SEED.CENA,
       titulo: 'Cena romántica',
-      fecha: diaDelMes(14),
+      fecha: diaDelMes(14, 0, fechaReferencia),
       hora: '19:00',
       descripcion:
         'Mesa junto a la ventana, como la última vez. Pedimos el vino que probamos y ahí nos dimos cuenta de que ninguno de los dos quería irnos.',
       lugar: 'Restaurante La Terraza – Ocaña',
       categoria: CATEGORIA.CITA,
       foto: fotoPlaceholder('cena-romantica', 1200, 800),
-      creadoEn: new Date().toISOString(),
+      creadoEn: fechaReferencia.toISOString(),
     },
     {
       id: IDS_SEED.SAN_GIL,
       titulo: 'Viaje a San Gil',
-      fecha: diaDelMes(19),
+      fecha: diaDelMes(19, 0, fechaReferencia),
       hora: null,
       descripcion:
         'Tres días fuera. Senderismo por la mañana y siesta larga después. Hay que reservar el hotel antes, que en temporada se llena.',
       lugar: 'San Gil, Santander',
       categoria: CATEGORIA.VIAJE,
       foto: fotoPlaceholder('san-gil', 1200, 800),
-      creadoEn: new Date().toISOString(),
+      creadoEn: fechaReferencia.toISOString(),
     },
     {
       id: IDS_SEED.CUMPLEANOS,
       titulo: 'Cumpleaños',
-      fecha: diaDelMes(22),
+      fecha: diaDelMes(22, 0, fechaReferencia),
       hora: null,
       descripcion: 'Tarta y velas. Ese día manda ella.',
       lugar: 'Casa',
       categoria: CATEGORIA.CUMPLEANOS,
       foto: fotoPlaceholder('cumpleanos', 1200, 800),
-      creadoEn: new Date().toISOString(),
+      creadoEn: fechaReferencia.toISOString(),
     },
     {
       id: IDS_SEED.JUEGOS,
       titulo: 'Noche de juegos',
-      fecha: diaDelMes(26),
+      fecha: diaDelMes(26, 0, fechaReferencia),
       hora: '20:00',
       descripcion:
         'Juegos de mesa hasta que nos den las ganas de dormir, o hasta que alguien gane, lo que pase primero.',
       lugar: 'Casa',
       categoria: CATEGORIA.CITA,
       foto: fotoPlaceholder('noche-de-juegos', 1200, 800),
-      creadoEn: new Date().toISOString(),
+      creadoEn: fechaReferencia.toISOString(),
     },
     {
       id: IDS_SEED.CINE,
       titulo: 'Cine',
-      fecha: diaDelMes(5, 1),
+      fecha: diaDelMes(5, 1, fechaReferencia),
       hora: '21:00',
       descripcion: 'La que estaba en cartelera. Palomitas grandes.',
       lugar: 'Multicentro',
       categoria: CATEGORIA.CITA,
       foto: fotoPlaceholder('cine', 1200, 800),
-      creadoEn: new Date().toISOString(),
+      creadoEn: fechaReferencia.toISOString(),
     },
     {
       id: IDS_SEED.TENTACION_CARPACHO,
       titulo: 'Tentación: completar la colección',
-      fecha: diaDelMes(15, 1),
+      fecha: diaDelMes(15, 1, fechaReferencia),
       hora: null,
       descripcion:
         'Un viaje a la ciudad para mirar cosas que no vamos a comprar. Pero vamos a mirar.',
       lugar: 'Bogotá',
       categoria: CATEGORIA.OTRO,
       foto: fotoPlaceholder('carpacho', 1200, 800),
-      creadoEn: new Date().toISOString(),
+      creadoEn: fechaReferencia.toISOString(),
     },
   ];
 }
@@ -312,11 +317,16 @@ export const FRASES = Object.freeze([
 /**
  * Devuelve la frase del día.
  *
+ * El día se lee en hora local (`getDate()`) y no recortando la cadena UTC que
+ * devuelve `toISOString()`. Recortar la cadena elegía la frase según el día en
+ * UTC, que va cinco horas por delante de Colombia: desde las siete de la tarde
+ * la app anunciaba la frase de mañana. Se pide al reloj de `src/utils/reloj.js`
+ * para que una prueba con fecha simulada reciba siempre la misma frase.
+ *
  * @returns {string} Una frase, estable durante todo el día.
  * @example
  * fraseDelDia(); // 'Cada día contigo es un plan.'
  */
 export function fraseDelDia() {
-  const dia = Number(new Date().toISOString().slice(8, 10));
-  return FRASES[dia % FRASES.length];
+  return FRASES[ahora().getDate() % FRASES.length];
 }

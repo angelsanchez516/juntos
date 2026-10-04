@@ -81,8 +81,8 @@ export const VERSION_DATOS = 3;
  *rededor.
  *
  * En esta fase no se guarda ninguna sesión: `Bienvenida` navega sin más y no
- * escribe nada. La constante existe ya para que, cuando se implemente en el
- * paso g, la clave sea `juntos:v1:sesion` y no herede la versión de los datos
+ * escribe nada. La constante existe ya para que, cuando se implemente la
+ * sesión, la clave sea `juntos:v1:sesion` y no herede la versión de los datos
  * por accidente. Ver docs/SEGURIDAD.md.
  *
  * @type {number}
@@ -309,18 +309,31 @@ export function borrar(coleccion) {
 }
 
 /**
- * Borra todas las claves de la app, incluida la versión antigua.
+ * Borra los datos de la app, pero no su sesión.
  *
- * Úsica para desarrollo y para el botón "Restablecer datos" de
+ * Útil para desarrollo y para el botón "Restablecer datos" de
  * Configuración. Tras llamarla, el siguiente `getEventos()` vuelve a sembrar
  * los datos de ejemplo.
+ *
+ * POR QUÉ SE CONSERVA LA SESIÓN
+ * Restablecer los datos y perder la sesión son dos cosas distintas, y esta
+ * función solo hace la primera. La sesión es el único dato que la app no puede
+ * volver a crear: si se borrara, quien está dentro se encontraría fuera de su
+ * propio calendario sin haber hecho nada, y además no tendría forma de volver a
+ * entrar porque todavía no hay recuperación de sesión (ver
+ * `TODO-FASE2 (SEGURIDAD)` y docs/SEGURIDAD.md). Un botón de "¿quieres volver a
+ * empezar?" que además cierra la puerta no es restablecer datos, es desinstalar
+ * la app. Cuando exista la recuperación, la interfaz lo advertirá aparte.
+ *
+ * `limpiarVersionesAnteriores()` aplica la misma excepción, y por el mismo
+ * motivo.
  *
  * SEGURIDAD: borra también las fotos que la pareja haya subido. La interfaz
  * debe advertirlo antes de llamar a esta función, porque no es reversible.
  *
- * @returns {boolean} `true` si se borró todo.
+ * @returns {boolean} `true` si se borraron los datos.
  * @example
- * resetDatos(); // vuelve al estado recién instalado
+ * resetDatos(); // vuelve al estado recién instalado, con la sesión intacta
  */
 export function resetDatos() {
   try {
@@ -329,12 +342,16 @@ export function resetDatos() {
     /*
      * No podemos usar `localStorage.clear()` porque borraría también las
      * claves de otras apps que compartan origen. Enumeramos solo las que
-     * empiezan por nuestro prefijo.
+     * empiezan por nuestro prefijo, y de entre ellas descartamos la sesión.
      */
+    const claveSesion = claveDeSesion();
     const clavesABorrar = [];
     for (let i = 0; i < window.localStorage.length; i += 1) {
       const clave = window.localStorage.key(i);
-      if (clave && clave.startsWith(`${PREFIJO}:`)) clavesABorrar.push(clave);
+      if (!clave || !clave.startsWith(`${PREFIJO}:`)) continue;
+      if (clave === claveSesion) continue;
+
+      clavesABorrar.push(clave);
     }
 
     clavesABorrar.forEach((clave) => window.localStorage.removeItem(clave));
@@ -417,7 +434,7 @@ export function listarClaves() {
  *
  * @returns {number} Estimación en bytes (2 bytes por carácter UTF-16).
  * @example
- *tamanoAproximado(); // 24000
+ * tamanoAproximado(); // 24000
  */
 export function tamanoAproximado() {
   return listarClaves().reduce((total, clave) => {
@@ -426,9 +443,9 @@ export function tamanoAproximado() {
      * la cuenta: una pestaña de Firefox en «cookies y datos de sitios» borrados,
      * el modo privado de Safari cerrando la ventana, o una extensión de
      * privacidad. Esta función se llama desde Configuración, al abrir la
-     * pantalla, y su única utilidad es una estimación cosmeticamente. Que falle
-     * al pintar ese número no puede tumbar la página entera, así que una clave
-     * ilegible se cuenta como vacía y se sigue con la siguiente.
+* pantalla, y su única utilidad es una estimación, que es estética. Que falle
+ * al pintar ese número no puede tumbar la página entera, así que una clave
+ * ilegible se cuenta como vacía y se sigue con la siguiente.
      */
     let valor = '';
     try {

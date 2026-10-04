@@ -4,13 +4,13 @@
  * RESPONSABILIDAD: única puerta de entrada a los datos de los recuerdos de la
  * pareja. Toda lectura y escritura de eventos pasa por aquí; las páginas nunca
  * tocan `localStorage`. La API es asíncrona aunque hoy el backing store sea
- * local, para que migrar a Supabase no obligue a cambiar las pantallas.
+*   local, para que migrar a Supabase no obligue a cambiar las pantallas.
  *
  * PATRÓN DE ERROR
  * - `validarEvento` lanza `ErrorValidacion` con detalle por campo: la UI puede
  *   marcar los inputs concretos.
  * - Cualquier otro fallo (JSON corrupto, cuota llena) se envuelve en
- *   `ErrorServicio` con un mensaje apto para mostrar, sinfiltrar detalles
+ *   `ErrorServicio` con un mensaje apto para mostrar, sin filtrar detalles
  *   internos como la pila de llamadas o el nombre de la clave.
  *
  * SEGURIDAD: la validación del cliente NO es una frontera de seguridad. En
@@ -28,6 +28,7 @@
 import { crearEventosSeed } from '../data/seed';
 import { eventosOrdenados } from '../utils/fechas';
 import { nuevoId } from '../utils/ids';
+import { ahora } from '../utils/reloj';
 import {
   ErrorValidacion,
   esIdValido,
@@ -174,7 +175,13 @@ export async function crearEvento(datos) {
     const evento = {
       ...limpio,
       id: nuevoId(),
-      creadoEn: new Date().toISOString(),
+      /*
+       * La marca de alta se pide al reloj por el mismo motivo que el resto: con
+       * la suite en una fecha simulada, un evento creado en la prueba quedaba
+       * con la fecha real y se ordenaba entre los de otro mes. En producción el
+       * reloj no está fijado, así que esto no cambia nada de lo que ve nadie.
+       */
+      creadoEn: ahora().toISOString(),
     };
 
     guardar(COLECCIONES.EVENTOS, eventosOrdenados([...eventos, evento]));

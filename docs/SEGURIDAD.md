@@ -191,7 +191,7 @@ Consecuencias asumidas en el código:
 
 - `claveDeSesion()` no delega en `claveDe()`, para que el desacople sea explícito y no dependa de acordarse de pasar la versión correcta.
 - `limpiarVersionesAnteriores()` **conserva siempre** la clave de sesión. Es la única que no se puede recuperar si se borra.
-- La constante ya existe aunque la sesión todavía no se escriba, para que al implementarla en el paso g la clave salga bien sin tener que revisar nada.
+- La constante ya existe aunque la sesión todavía no se escriba, para que cuando se implemente la clave salga bien sin tener que revisar nada.
 
 **En Fase 2 desaparece y no se sustituye:** la sesión pasa a vivir en la cookie de Supabase Auth, en el servidor, fuera del alcance del navegador. Ahí el versioning del cliente no aplica. Lo que sí se conserva es el criterio: la sesión nunca se invalida por un cambio en la forma de los datos.
 

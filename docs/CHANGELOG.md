@@ -111,6 +111,27 @@ la semana del reloj.
 
 ---
 
+## Fotos del seed sin conexión
+
+### Cambiado
+- **Las fotos de ejemplo ya no se piden a internet.** Cada semilla tiene su SVG en `public/img/`: catorce archivos de unos 500 bytes, 7,5 kB en total. Antes eran URLs de `picsum.photos`, con lo que la app no enseñaba fotos sin conexión y el mockup se veía distinto cada semana.
+- **`fotoPlaceholder()` por `fotoLocal()`**, que devuelve la ruta en lugar de construir una URL. Los tres parámetros de ancho y alto se van: un SVG no necesita que le digan el tamaño.
+- **`PATRONES.RUTA_LOCAL_IMAGEN`**, el patrón que acepta esas rutas en `foto` e `imagen` junto a las URL http(s) y las `data:` de base64.
+
+### Decisiones
+- **SVG y no PNG.** Un degradado son tres colores, y en SVG son tres líneas de texto: se lee en un `diff`, se corrige a mano y no hay binario que subir. El tamaño importa cuando hay catorce.
+- **El patrón es estrecho a propósito.** Solo `/img/`, un nombre y una extensión de imagen. Quedan fuera y hay una prueba para cada uno: `//sitio.com/foto.svg` (URL relativa al protocolo), `..` (subir por encima de `public/`), `javascript:`, `data:text/html`, `data:image/svg+xml` (SVG embebido, que el patrón de `data:` no admite), `/api/eventos.svg` (ruta de la API disfrazada de foto), una cabecera de respuesta colada y barras invertidas. Lo que este patrón deje pasar acaba en un `src` de la pantalla, así que la lista de entradas hostiles es el objeto de la prueba y no un añadido.
+- **No distingue mayúsculas.** `/IMG/FOTO.SVG` es la misma ruta para el navegador y para el servidor; dejarlo pasar no abre nada, y probarlo fija la intención.
+- **El degradado de categoría sigue siendo el respaldo.** No se toca: si un marcador no llegara a cargar, quien lo enseña ya tenía su plan.
+- **No se toca nada más de la foto.** El SVG solo se pinta con `<img>`, donde el navegador no ejecuta su contenido, y las fotos que sube la persona siguen pasando por el mismo `canvas` de siempre.
+
+### Verificación
+- 1095 comprobaciones, 0 fallos en las tres fechas simuladas.
+- Pruebas nuevas del bloque de fotos: que el seed trae las catorce, que ninguna sale de casa, que el patrón acepta las del seed y rechaza quince entradas hostiles, que el `service` tampoco guarda una ruta hostil, que el archivo de cada foto existe y pesa menos de 4 kB.
+- Comprobado sobre la build: `vite preview` responde 200 con `image/svg+xml` en `/img/cena-romantica.svg`, y `dist/img/` lleva los catorce archivos.
+
+---
+
 ## Integración de punta a punta
 
 ### Añadido

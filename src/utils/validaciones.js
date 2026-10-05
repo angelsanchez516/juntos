@@ -41,8 +41,20 @@ export const PATRONES = Object.freeze({
   HORA: /^([01]\d|2[0-3]):[0-5]\d$/,
   // UUID v4 generado por crypto.randomUUID().
   UUID: /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-  // URL http/https, para las fotos remotas del seed.
+  // URL http/https, para las fotos remotas.
   URL: /^https?:\/\/\S+$/i,
+  // Marcador local de `public/img/`, para las fotos del seed. Deliberadamente
+  // estrecha: prefijo `/img/`, un solo nombre de archivo y una extensión de la
+  // lista. Con eso quedan fuera a propósito:
+  // - `//sitio.com/foto.svg`: URL relativa al protocolo, carga de fuera.
+  // - `javascript:...` y `data:text/html,...`: esquemas, no rutas.
+  // - `..`: nadie sube por encima de `public/`, y el navegador lo normalizaría
+  //   por su cuenta, pero aquí no se_normaliza nada.
+  // - `/api/eventos.svg`: no está en `/img/`, así que no entra aunque la
+  //   extensión parezca la de una imagen.
+  // El SVG solo se pinta con `<img>`, donde el navegador no ejecuta su
+  // contenido; aun así, la lista corta reduce la superficie a cero.
+  RUTA_LOCAL_IMAGEN: /^\/img\/[a-z0-9-]+\.(?:svg|png|jpe?g|webp)$/i,
   // Data URL de imagen en base64, la que guardamos para las fotos subidas.
   DATA_URL_IMAGEN: /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/,
 });
@@ -244,11 +256,12 @@ export function validarEvento(datos) {
     errores.categoria = 'Categoría no válida.';
   }
 
-  // --- Foto: opcional, URL http(s) o data URL de imagen permitida ---
+  // --- Foto: opcional, URL http(s), ruta local o data URL de imagen permitida ---
   const fotoCruda = entrada.foto ? String(entrada.foto).trim() : '';
   if (
     fotoCruda &&
     !PATRONES.URL.test(fotoCruda) &&
+    !PATRONES.RUTA_LOCAL_IMAGEN.test(fotoCruda) &&
     !PATRONES.DATA_URL_IMAGEN.test(fotoCruda)
   ) {
     errores.foto = 'La foto no es válida.';
@@ -308,6 +321,7 @@ export function validarIdea(datos) {
   if (
     imagenCruda &&
     !PATRONES.URL.test(imagenCruda) &&
+    !PATRONES.RUTA_LOCAL_IMAGEN.test(imagenCruda) &&
     !PATRONES.DATA_URL_IMAGEN.test(imagenCruda)
   ) {
     errores.imagen = 'La imagen no es válida.';

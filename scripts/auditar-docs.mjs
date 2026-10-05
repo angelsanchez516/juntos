@@ -1,6 +1,6 @@
 /**
  * Auditoría de cabeceras y documentación: que ningún fichero quede sin explicar y
- * ninguna.exportación se documente por sorpresa al leerla.
+ * ninguna exportación se documente por sorpresa al leerla.
  *
  * RESPONSABILIDAD: recorrer los ficheros del código y avisar de dos cosas: un
  * fichero sin cabecera, y una función, un hook, un componente o una constante
@@ -13,7 +13,7 @@
  *
  * 1. Un fichero sin cabecera. La cabecera dice qué responsabilidad tiene el
  *    fichero, qué es de otro y por qué. Sin ella, quien lo abre tiene que
- *   averiguarlo leyendo las cuarenta líneas siguientes, y el que lo escribió
+ *    averiguarlo leyendo las cuarenta líneas siguientes, y el que lo escribió
  *    tampoco se acuerda.
  * 2. Una exportación sin JSDoc. Exportar es una promesa de que el nombre es
  *    público; sin comentario, el que lo llama tiene que abrir el fichero para

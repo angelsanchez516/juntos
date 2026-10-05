@@ -115,7 +115,7 @@ bienvenida ya no aparece; una clave corrupta, un array o un `id` que no sea un
 UUID cuentan como "no hay sesión"; "Comenzar" guarda la sesión y entra en Inicio;
 y cerrar sesión borra solo esa clave, deja los datos donde estaban y pregunta
 antes con un único diálogo.
-**1065 comprobaciones.**
+**1095 comprobaciones.**
 
 Dos de ellas son los flujos completos, montados con la app entera y no pantalla
 por pantalla: el de un recuerdo con foto (bienvenida, "Comenzar", calendario,
@@ -167,7 +167,7 @@ encuentra caracteres fuera del alfabeto latino y de los signos del español
 saltos de línea mezclados o un fichero sin salto final.
 
 Existe porque **el linter no puede ver este fallo**. Un fichero puede compilar,
-pasar los 1065 tests y llevar tres palabras en chino en medio de una frase en
+pasar los 1095 tests y llevar tres palabras en chino en medio de una frase en
 español: no hay error de sintaxis que lo delate. Ha pasado siete veces en este
 proyecto. Los símbolos que sí se usan a propósito (flechas, `§`, `°`, `❤`) están
 en la lista de permitidos del script, cada uno con su motivo, para que ampliar la
@@ -259,7 +259,8 @@ porque su firma no dice cuándo se llama ni qué devuelve.
 - **localStorage no es seguro:** se documenta explícitamente en `docs/SEGURIDAD.md`. En Fase 2 pasará al backend (Supabase) con autorización por pareja (RLS).
 - **Colores de categoría:** se aplican con `style={{ backgroundColor }}` (hex desde `src/utils/categorias.js`). Esto evita el problema de clases dinámicas que Tailwind purga en tiempo de compilación. El texto de las cinco categorías pasa contraste AA sobre su fondo; los colores principales sobre `#F7FAFC` no llegan a 3:1 en `viaje`, `cumpleanos` y `otro`, así que el significado no debe depender solo del color.
 - **Calendario:** se construye a mano con `date-fns` (locale `es`), ignorando la pequeña duplicación visible en el mockup.
-- **Fotos:** las del seed usan URLs remotas (`picsum.photos`), y son datos de ejemplo a propósito. Las que sube la persona se recomprimen en el cliente antes de guardarse como `base64`, y ese canvas es lo que elimina los metadatos EXIF/GPS. En Fase 2 van a un bucket privado de Supabase Storage. El degradado de reserva se mantiene en las dos fases: con una URL firmada caducada el fallo de carga es el mismo que con una imagen bloqueada.
+- **Fotos:** las del seed son SVG de `public/img/`, uno por semilla, 500 bytes cada uno: son datos de ejemplo a propósito y no salen de casa. Las que sube la persona se recomprimen en el cliente antes de guardarse como `base64`, y ese canvas es lo que elimina los metadatos EXIF/GPS. En Fase 2 van a un bucket privado de Supabase Storage. El degradado de reserva se mantiene en las dos fases: con una URL firmada caducada el fallo de carga es el mismo que con una imagen bloqueada, y con un marcador que no llegara a cargar, igual.
+- **Rutas locales en los datos:** `PATRONES.RUTA_LOCAL_IMAGEN` solo admite `/img/` seguido de un nombre y una extensión de imagen. Entra en la lista blanca de `foto` e `imagen` junto a las URL http(s) y las `data:` de base64. La estrechez es a propósito: `//sitio.com/foto.svg`, `..`, `javascript:`, `data:text/html` y `/api/...` quedan fuera, y hay una prueba para cada caso.
 - **Sin smoke test en navegador todavía:** las pruebas cubren el DOM y la lógica, pero falta la comprobación visual en escritorio y móvil. La persona usuaria no puede ejecutar la app, así que sigue pendiente.
 
 ## Licencia

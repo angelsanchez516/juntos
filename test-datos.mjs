@@ -22,7 +22,7 @@
  */
 import { createServer } from 'vite';
 import { createRequire } from 'module';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 
 // --- localStorage simulado, con cuota configurable e inyectable de errores ---
 class LocalStorageMock {
@@ -164,6 +164,69 @@ comprobar('el seed de ideas solo usa claves que existen', sd.crearIdeasSeed().ev
 // `validarIdea` lanza `ErrorValidacion` en vez de devolver `{ valido }`, así
 // que "el seed es válido" significa "no lanza".
 comprobar('la validación acepta las claves del seed', sd.crearIdeasSeed().every((i) => { try { va.validarIdea(i); return true; } catch { return false; } }));
+
+console.log('\n== Las fotos del seed son de aquí ==');
+/*
+ * El seed pedía las fotos a `picsum.photos`. Ahora son SVG de `public/img/`, y
+ * estas pruebas miran las dos cosas que se rompen al cambiar eso: que la
+ * validación acepte las rutas nuevas y que el archivo exista de verdad. Una
+ * ruta bien escrita que no tiene archivo detrás se ve como un hueco vacío en la
+ * galería, y eso no lo caza ninguna prueba de JavaScript.
+ */
+const fotosDelSeed = [
+  sd.FOTO_BANNER,
+  ...sd.crearEventosSeed().map((e) => e.foto),
+  ...sd.crearIdeasSeed().map((i) => i.imagen),
+].filter(Boolean);
+comprobar('el seed trae fotos para todas las semillas', [...new Set(fotosDelSeed)].length === 14, String(new Set(fotosDelSeed).size));
+comprobar('ninguna foto del seed sale de casa', fotosDelSeed.every((f) => f.startsWith('/img/')), fotosDelSeed.filter((f) => !f.startsWith('/img/')).join(' '));
+comprobar('ninguna foto del seed vuelve a picsum', !JSON.stringify(fotosDelSeed).includes('picsum'));
+comprobar('la validación acepta las rutas del seed', sd.crearEventosSeed().every((e) => { try { va.validarEvento({ ...e, fecha: e.fecha }); return true; } catch { return false; } }));
+comprobar('y acepta las de las ideas', sd.crearIdeasSeed().every((i) => { try { va.validarIdea(i); return true; } catch { return false; } }));
+/*
+ * `foto` e `imagen` se validan contra este patrón, así que lo que este patrón
+ * deje pasar acaba en un atributo `src` de la pantalla. Por eso la lista de
+ * entradas hostiles es el objeto de la prueba, y no un afterthought.
+ */
+const RUTAS_HOSTILES = [
+  ['//sitio.com/foto.svg', 'una URL relativa al protocolo carga de fuera'],
+  ['/img/../../etc/passwd.png', 'subir por encima de public/'],
+  ['../../img/foto.svg', 'subir sin barra inicial'],
+  ['/img/./foto.svg', 'un punto suelto en medio'],
+  ['/img/sub/carpeta/foto.svg', 'carpetas dentro de /img/'],
+  ['/img/foto.exe', 'una extensión que no es de imagen'],
+  ['/img/foto.svg.php', 'una imagen por delante de un ejecutable'],
+  ['/api/eventos.svg', 'una ruta fuera de /img/'],
+  ['/img/foto.svg\nX-Inventado: 1', 'una cabecera de respuesta colada'],
+  ['/img/foto svg.png', 'un espacio por medio'],
+  ['javascript:alert(1)//img/foto.svg', 'un esquema de JavaScript'],
+  ['data:text/html,<script>alert(1)</script>', 'HTML embebido'],
+  ['data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=', 'SVG embebido que el patrón de data URL no admite'],
+  ['\\img\\foto.svg', 'barras invertidas, que en algunos navegadores cuentan como separador'],
+];
+comprobar('el patrón acepta una ruta local de imagen', va.PATRONES.RUTA_LOCAL_IMAGEN.test('/img/cine.svg'));
+comprobar('y acepta los nombres que usa el seed', [...new Set(fotosDelSeed)].every((f) => va.PATRONES.RUTA_LOCAL_IMAGEN.test(f)), [...new Set(fotosDelSeed)].filter((f) => !va.PATRONES.RUTA_LOCAL_IMAGEN.test(f)).join(' '));
+RUTAS_HOSTILES.forEach(([ruta, motivo]) => {
+  comprobar(`el patrón rechaza ${motivo}`, !va.PATRONES.RUTA_LOCAL_IMAGEN.test(ruta), ruta);
+});
+comprobar('ninguna ruta hostil pasa la validación del evento', RUTAS_HOSTILES.every(([ruta]) => {
+  try { va.validarEvento({ ...sd.crearEventosSeed()[0], fecha: sd.crearEventosSeed()[0].fecha, foto: ruta }); return false; } catch { return true; }
+}), RUTAS_HOSTILES.filter(([ruta]) => { try { va.validarEvento({ ...sd.crearEventosSeed()[0], fecha: sd.crearEventosSeed()[0].fecha, foto: ruta }); return true; } catch { return false; } }).map(([ruta]) => ruta).join(' '));
+comprobar('ninguna ruta hostil pasa la validación de la idea', RUTAS_HOSTILES.every(([ruta]) => {
+  try { va.validarIdea({ ...sd.crearIdeasSeed()[0], imagen: ruta }); return false; } catch { return true; }
+}), RUTAS_HOSTILES.filter(([ruta]) => { try { va.validarIdea({ ...sd.crearIdeasSeed()[0], imagen: ruta }); return true; } catch { return false; } }).map(([ruta]) => ruta).join(' '));
+comprobar('el patrón no distingue de mayúsculas, porque es una ruta nuestra', va.PATRONES.RUTA_LOCAL_IMAGEN.test('/IMG/FOTO.SVG'));
+comprobar('y entonces una ruta hostile no se cuela por escribirla en mayúsculas', !va.PATRONES.RUTA_LOCAL_IMAGEN.test('//SITIO.COM/FOTO.SVG'), 'ha dejado pasar una ruta relativa al protocolo en mayúsculas');
+comprobar('una foto que no está es opcional, el evento se guarda igual', await (async () => {
+  try { return va.validarEvento({ ...sd.crearEventosSeed()[0], fecha: sd.crearEventosSeed()[0].fecha, foto: undefined }).titulo.length > 0; } catch { return false; }
+})());
+comprobar('el service tampoco acepta una ruta hostil', await (async () => {
+  try { await ev.crearEvento({ ...sd.crearEventosSeed()[0], id: undefined, foto: '/api/eventos.svg' }); return false; } catch { return true; }
+})(), 'el service ha guardado una foto de /api/');
+const faltaLaFoto = fotosDelSeed.find((f) => !existsSync(`public${f}`));
+comprobar('el archivo de cada foto está en el repositorio', !faltaLaFoto, `falta ${faltaLaFoto ?? ''}`);
+comprobar('y pesa poco, para no subir binarios', sd.crearEventosSeed().every((e) => statSync(`public${e.foto}`).size < 4096), 'algún marcador pesa más de 4 kB');
+comprobar('el banner también está', existsSync(`public${sd.FOTO_BANNER}`), `falta ${sd.FOTO_BANNER}`);
 
 console.log('\n== El catálogo es la única fuente ==');
 /*
@@ -508,10 +571,10 @@ comprobar('toggleFavorita desmarca', fav.favorita === false);
 comprobar('toggleFavorita persiste', (await ci.getIdeasCitas()).find((i) => i.id === ideas[1].id).favorita === false);
 const ideaNueva = await ci.crearIdea({
   titulo: 'Nueva idea', categoria: 'relax',
-  imagen: 'https://picsum.photos/seed/nueva/800/600',
+  imagen: 'https://fotos.juntos.test/nueva.jpg',
 });
 comprobar('crearIdea genera UUID', va.PATRONES.UUID.test(ideaNueva.id));
-comprobar('crearIdea guarda la imagen', ideaNueva.imagen === 'https://picsum.photos/seed/nueva/800/600');
+comprobar('crearIdea guarda la imagen', ideaNueva.imagen === 'https://fotos.juntos.test/nueva.jpg');
 const convertido = await ci.convertirIdeaEnEvento(ideaNueva.id, { fecha: fe.hoyISO() });
 comprobar('convertir crea un evento', !!convertido.titulo && !!convertido.fecha);
 comprobar('convertir usa categoría cita', convertido.categoria === 'cita');

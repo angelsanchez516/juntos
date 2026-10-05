@@ -75,29 +75,33 @@ export const IDS_SEED_IDEAS = Object.freeze({
 
 /**
  * Foto de una pareja al atardecer, usada como banner de Inicio.
- * Placeholder remoto hasta tener las fotos reales de la pareja.
+ * Marcador local hasta tener las fotos reales de la pareja.
  * @type {string}
  */
-export const FOTO_BANNER =
-  'https://picsum.photos/seed/juntos-banner/1200/600';
+export const FOTO_BANNER = '/img/juntos-banner.svg';
 
 /**
- * Genera una URL de placeholder determinista para una foto de evento.
+ * Ruta del marcador de posición de una foto del seed.
  *
- * `picsum.photos` permite pedir una imagen por semilla, así que siempre
- * devuelve la misma para el mismo `seed` y los datos de ejemplo son estables
- * entre recargas.
+ * POR QUÉ UN ARCHIVO NUESTRO Y NO UNA FOTO DE INTERNET
+ * Antes esto pedía la imagen a `picsum.photos`, con lo que la app no enseñaba
+ * fotos sin conexión y, peor, el mockup se veía distinto cada semana.
+ * Ahora cada semilla tiene su SVG en `public/img/`: pesa 500 bytes, se
+ * distingue una foto de otra y no sale nada de tu ordenador.
+ *
+ * Lo que se ve es un degradado. Si algún día un marcador no llegara a cargar,
+ * quien lo enseña tiene su propio respaldo: el degradado de la categoría.
+ *
+ * Related: src/components/galeria/FotoGaleria.jsx, src/utils/validaciones.js
  *
  * @param {string} semilla Semilla que identifica la imagen.
- * @param {number} [ancho] Ancho en píxeles.
- * @param {number} [alto] Alto en píxeles.
- * @returns {string} URL de la imagen.
+ * @returns {string} Ruta local de la imagen, válida para `validarEventoForm`.
  * @example
- * fotoPlaceholder('cena', 800, 600);
- * // 'https://picsum.photos/seed/cena/800/600'
+ * fotoLocal('cena-romantica');
+ * // '/img/cena-romantica.svg'
  */
-export function fotoPlaceholder(semilla, ancho = 800, alto = 600) {
-  return `https://picsum.photos/seed/${semilla}/${ancho}/${alto}`;
+export function fotoLocal(semilla) {
+  return `/img/${semilla}.svg`;
 }
 
 /**
@@ -131,7 +135,7 @@ export function crearEventosSeed(fechaReferencia = ahora()) {
         'El primer año juntos. Luego veníamos a cenar aquí cada mes, y cada vez nos contábamos más cosas.',
       lugar: 'Casa',
       categoria: CATEGORIA.ANIVERSARIO,
-      foto: fotoPlaceholder('aniversario-pasado', 1200, 800),
+      foto: fotoLocal('aniversario-pasado'),
       creadoEn: fechaReferencia.toISOString(),
     },
     {
@@ -143,7 +147,7 @@ export function crearEventosSeed(fechaReferencia = ahora()) {
         'Dos años desde que empezó todo. No lo planeamos, pero salió perfecto. Vamos a celebrarlo con algo dulce y mucho tiempo sin mirar el reloj.',
       lugar: 'Casa',
       categoria: CATEGORIA.ANIVERSARIO,
-      foto: fotoPlaceholder('aniversario', 1200, 800),
+      foto: fotoLocal('aniversario'),
       creadoEn: fechaReferencia.toISOString(),
     },
     {
@@ -155,7 +159,7 @@ export function crearEventosSeed(fechaReferencia = ahora()) {
         'Mesa junto a la ventana, como la última vez. Pedimos el vino que probamos y ahí nos dimos cuenta de que ninguno de los dos quería irnos.',
       lugar: 'Restaurante La Terraza – Ocaña',
       categoria: CATEGORIA.CITA,
-      foto: fotoPlaceholder('cena-romantica', 1200, 800),
+      foto: fotoLocal('cena-romantica'),
       creadoEn: fechaReferencia.toISOString(),
     },
     {
@@ -167,7 +171,7 @@ export function crearEventosSeed(fechaReferencia = ahora()) {
         'Tres días fuera. Senderismo por la mañana y siesta larga después. Hay que reservar el hotel antes, que en temporada se llena.',
       lugar: 'San Gil, Santander',
       categoria: CATEGORIA.VIAJE,
-      foto: fotoPlaceholder('san-gil', 1200, 800),
+      foto: fotoLocal('san-gil'),
       creadoEn: fechaReferencia.toISOString(),
     },
     {
@@ -178,7 +182,7 @@ export function crearEventosSeed(fechaReferencia = ahora()) {
       descripcion: 'Tarta y velas. Ese día manda ella.',
       lugar: 'Casa',
       categoria: CATEGORIA.CUMPLEANOS,
-      foto: fotoPlaceholder('cumpleanos', 1200, 800),
+      foto: fotoLocal('cumpleanos'),
       creadoEn: fechaReferencia.toISOString(),
     },
     {
@@ -190,7 +194,7 @@ export function crearEventosSeed(fechaReferencia = ahora()) {
         'Juegos de mesa hasta que nos den las ganas de dormir, o hasta que alguien gane, lo que pase primero.',
       lugar: 'Casa',
       categoria: CATEGORIA.CITA,
-      foto: fotoPlaceholder('noche-de-juegos', 1200, 800),
+      foto: fotoLocal('noche-de-juegos'),
       creadoEn: fechaReferencia.toISOString(),
     },
     {
@@ -201,7 +205,7 @@ export function crearEventosSeed(fechaReferencia = ahora()) {
       descripcion: 'La que estaba en cartelera. Palomitas grandes.',
       lugar: 'Multicentro',
       categoria: CATEGORIA.CITA,
-      foto: fotoPlaceholder('cine', 1200, 800),
+      foto: fotoLocal('cine'),
       creadoEn: fechaReferencia.toISOString(),
     },
     {
@@ -213,7 +217,7 @@ export function crearEventosSeed(fechaReferencia = ahora()) {
         'Un viaje a la ciudad para mirar cosas que no vamos a comprar. Pero vamos a mirar.',
       lugar: 'Bogotá',
       categoria: CATEGORIA.OTRO,
-      foto: fotoPlaceholder('carpacho', 1200, 800),
+      foto: fotoLocal('carpacho'),
       creadoEn: fechaReferencia.toISOString(),
     },
   ];
@@ -241,7 +245,7 @@ const IDEAS_SEED = Object.freeze([
       'Luz apagada, manta y algo rico para picar. Película que ya vimos mil veces pero da igual.',
     categoria: CATEGORIA_IDEA.EN_CASA,
     favorita: true,
-    imagen: fotoPlaceholder('idea-cine-casa', 800, 600),
+    imagen: fotoLocal('idea-cine-casa'),
   },
   {
     id: IDS_SEED_IDEAS.PICNIC,
@@ -250,7 +254,7 @@ const IDEAS_SEED = Object.freeze([
       'Manta a la sombra, algo de picar y no mirar el reloj. Llevar un libro por si acaso.',
     categoria: CATEGORIA_IDEA.AFUERA,
     favorita: true,
-    imagen: fotoPlaceholder('idea-picnic', 800, 600),
+    imagen: fotoLocal('idea-picnic'),
   },
   {
     id: IDS_SEED_IDEAS.ESCAPADA,
@@ -259,7 +263,7 @@ const IDEAS_SEED = Object.freeze([
       'Carretera, un sitio con piscina y ninguna lista de cosas que hacer. Dormir sin alarma.',
     categoria: CATEGORIA_IDEA.AVENTURA,
     favorita: false,
-    imagen: fotoPlaceholder('idea-escapada', 800, 600),
+    imagen: fotoLocal('idea-escapada'),
   },
   {
     id: IDS_SEED_IDEAS.COCINAR,
@@ -268,7 +272,7 @@ const IDEAS_SEED = Object.freeze([
       'Elegimos la receta más ambiciosa que encontremos y vemos qué sale. Perdemos el primer intento.',
     categoria: CATEGORIA_IDEA.EN_CASA,
     favorita: false,
-    imagen: fotoPlaceholder('idea-cocinar', 800, 600),
+    imagen: fotoLocal('idea-cocinar'),
   },
   {
     id: IDS_SEED_IDEAS.SPA,
@@ -277,7 +281,7 @@ const IDEAS_SEED = Object.freeze([
       'Masajes, baños y cero prisa. El mejor regalo de cumpleaños que no cuesta nada.',
     categoria: CATEGORIA_IDEA.RELAX,
     favorita: false,
-    imagen: fotoPlaceholder('idea-spa', 800, 600),
+    imagen: fotoLocal('idea-spa'),
   },
 ]);
 

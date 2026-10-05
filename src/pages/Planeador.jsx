@@ -99,8 +99,8 @@ export default function Planeador() {
    *
    * `escribirFiltros` devuelve una cadena vacía cuando no queda ningún filtro,
    * y una cadena vacía es lo que React Router espera para quitar los
-   * parámetros. Devolver `undefined` provocaría el aviso "Cannot update a
-   * component while rendering a different component".
+   * parámetros. Devolver `undefined` provocaría el aviso `Cannot update a
+   * component while rendering a different component`.
    *
    * @param {{categoria: string, soloFavoritas: boolean}} filtros Filtros nuevos.
    * @returns {void}

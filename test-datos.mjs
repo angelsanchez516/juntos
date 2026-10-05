@@ -1357,8 +1357,14 @@ console.log('\n== Paso g: la vista semanal ==');
  * seed. Con la del primer evento, en diciembre solo cae un día con eventos en
  * toda la semana y las comprobaciones de "pulsar otra columna" se quedarían sin
  * la segunda columna que necesitan. Eligiendo la semana más poblada, el mismo
- * bloque funciona en los tres meses simulados y la suite no cambia de número
- * de pruebas según la fecha con la que se ejecute.
+ * bloque funciona en los tres meses simulados y la suite no cambia de número de
+ * pruebas según la fecha con la que se ejecute.
+ *
+ * OJO: esto es una decisión del Fixture, no de la app. `construirSemana()` abre la
+ * semana que contiene el ancla, y siempre. Decir "la semana con más eventos" sin
+ * más lleva a pensar lo contrario, y ya lo hizo: ese era el error del informe y
+ * del commit del paso g. Lo que fija el comportamiento está en "qué semana se abre
+ * con `?fecha=` explícita", con dos anclajes de la misma semana que cruza el año.
  */
 const semanaConMasEventos = EVENTOS_DEL_SEMILLERO.reduce((mejor, evento) => {
   const semana = ca.construirSemana(ca.aFechaLocal(evento.fecha));
@@ -1485,6 +1491,43 @@ comprobar('y el día resaltado es hoy', columnaSemana(appSinFecha.raiz)[semanaDe
 comprobar('y el panel lateral enseña los eventos de hoy', appSinFecha.raiz.querySelector('aside section h2')?.textContent.trim() === fe.formatearFecha(HOY_PASO_G), appSinFecha.raiz.querySelector('aside section h2')?.textContent ?? 'sin título');
 
 await appSinFecha.desmontar();
+
+console.log('\n== Paso g: qué semana se abre con `?fecha=` explícita ==');
+/*
+ * El 31 de diciembre de 2026 y el 1 de enero de 2027 caen en la MISMA semana: la
+ * del lunes 28 al domingo 3. Es el caso que separa "se abre la semana que
+ * contiene la fecha" de "se abre la semana con más eventos", y por eso son dos
+ * anclajes y no uno: si la app eligiera por eventos, una de las dos fechas abriría
+ * otra semana. Con el seed de los meses simulados no hay eventos en ninguna de las
+ * dos, así que además descarta que caiga por casualidad en una semana con datos.
+ *
+ * También fija el título, que es lo que se lee en pantalla: si se calculara con el
+ * ancla en lugar de con el lunes y el domingo, aquí se vería.
+ */
+const ANCLA_31_DIC = '2026-12-31';
+const ANCLA_1_ENE = '2027-01-01';
+const semanaDel31 = ca.construirSemana(ca.aFechaLocal(ANCLA_31_DIC));
+const semanaDel1 = ca.construirSemana(ca.aFechaLocal(ANCLA_1_ENE));
+const columnaResaltada = (raiz) =>
+  columnaSemana(raiz).findIndex((columna) => columna.querySelector('[aria-pressed="true"]') !== null);
+const diasDeLaSemanaDelCruce = semanaDel31.celdas.map((celda) => String(celda.dia));
+
+comprobar('las dos fechas caen en la semana del 28 de diciembre', semanaDel31.celdas[0].fechaISO === '2026-12-28' && semanaDel1.celdas[0].fechaISO === '2026-12-28', `${semanaDel31.celdas[0].fechaISO} / ${semanaDel1.celdas[0].fechaISO}`);
+comprobar('y por eso comparten título', semanaDel31.titulo === semanaDel1.titulo && semanaDel31.titulo === '28 dic – 3 ene', `${semanaDel31.titulo} / ${semanaDel1.titulo}`);
+
+const app31Dic = await montarCalendario(`?vista=semana&fecha=${ANCLA_31_DIC}`);
+comprobar('`?vista=semana&fecha=2026-12-31` abre la semana del 28 al 3 de enero', app31Dic.raiz.querySelector('h2')?.textContent.trim() === '28 dic – 3 ene', app31Dic.raiz.querySelector('h2')?.textContent ?? 'sin título');
+comprobar('las siete columnas van del 28 al 3, en orden', columnaSemana(app31Dic.raiz).map((columna, i) => columna.textContent.includes(diasDeLaSemanaDelCruce[i])).every(Boolean), columnaSemana(app31Dic.raiz).map((c) => c.textContent.trim()).join(' | '));
+comprobar('y se resalta el jueves, que es el 31 y el ancla', columnaResaltada(app31Dic.raiz) === 3, `columna ${columnaResaltada(app31Dic.raiz)}`);
+comprobar('la URL sigue diciendo 31 de diciembre, no el lunes', ecoUrlDe(app31Dic).includes('fecha=2026-12-31'), ecoUrlDe(app31Dic));
+await app31Dic.desmontar();
+
+const app1Ene = await montarCalendario(`?vista=semana&fecha=${ANCLA_1_ENE}`);
+comprobar('`?vista=semana&fecha=2027-01-01` abre la misma semana', app1Ene.raiz.querySelector('h2')?.textContent.trim() === '28 dic – 3 ene', app1Ene.raiz.querySelector('h2')?.textContent ?? 'sin título');
+comprobar('pero ahora se resalta el viernes, que es el 1', columnaResaltada(app1Ene.raiz) === 4, `columna ${columnaResaltada(app1Ene.raiz)}`);
+comprobar('y las siete columnas son las mismas', columnaSemana(app1Ene.raiz).map((columna, i) => columna.textContent.includes(diasDeLaSemanaDelCruce[i])).every(Boolean), columnaSemana(app1Ene.raiz).map((c) => c.textContent.trim()).join(' | '));
+comprobar('las dos URL describen semanas distintas dentro de la misma rejilla', ecoUrlDe(app1Ene).includes('fecha=2027-01-01'), ecoUrlDe(app1Ene));
+await app1Ene.desmontar();
 
 console.log('\n== Paso g: cambiar de mes y de año con las flechas ==');
 /*

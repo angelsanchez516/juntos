@@ -60,7 +60,7 @@ export class ErrorServicio extends Error {
 /**
  * Lee todos los eventos, sembrando los datos de ejemplo la primera vez.
  *
- * Es la función que implementa el "get or seed": si no hay nada guardado
+ * Es la función que implementa el "lee o siembra": si no hay nada guardado
  * (primer arranque, datos corruptos, o reset) escribe el seed y lo devuelve.
  *
  * @returns {Promise<Array<import('../types/models.js').Evento>>} Eventos

@@ -2,7 +2,7 @@
 
 "Juntos" es una aplicación web responsive para parejas: combina un calendario de recuerdos con un planeador de citas. Esta fase 1 es un prototipo **solo frontend**, con datos simulados persistidos en `localStorage`.
 
-## Estado actual (Pasos a, b, c, d, e y f)
+## Estado actual (Pasos a, b, c, d, e, f y g)
 - [x] Setup Vite + React (JS)
 - [x] Tailwind CSS v3.4.17 fijado (decisión para mantener `tailwind.config.js`)
 - [x] React Router + rutas (Inicio, Calendario, EventoDetalle, Planeador, Momentos, Galería, Configuración y Bienvenida fuera del layout)
@@ -23,8 +23,10 @@
 - [x] **Origen de las ideas**: `IdeaCita.origen` distingue las del seed de las de la pareja, y solo estas se pueden editar o borrar
 - [x] **Galería** (paso f): mosaico responsive agrupado por mes, derivado de los eventos, con filtro de año en la URL y enlace a cada recuerdo
 - [x] **Vistas Semana y Día** (paso g): conmutador con la vista en la URL (`?vista=semana|dia&fecha=YYYY-MM-DD`), navegación con flechas y "Hoy", y panel lateral que sigue al día resaltado
-- [x] **Configuración** (paso g): recuentos, espacio ocupado, claves con su versión y "Restablecer datos" con confirmación, que conserva la sesión
+- [x] **Configuración** (paso g): recuentos, espacio ocupado, claves con su versión, "Cerrar sesión" y "Restablecer datos" con sus confirmaciones. Restablecer conserva la sesión; cerrarla borra solo la sesión
+- [x] **Sesión simulada** (paso g): `juntos:v1:sesion`, guardas de ruta en los dos sentidos y "Comenzar" como única entrada. No es autenticación
 - [x] **Reloj inyectable** (`src/utils/reloj.js`) y suites con fecha simulada para octubre, febrero y diciembre
+- [x] **Auditoría de idioma** (`npm run auditar-idioma`), que busca palabras inglesas en la prosa del proyecto
 - [ ] Pulido final y paso h
 
 ## Requisitos
@@ -42,7 +44,7 @@ npm run dev
 ```
 La app abre por defecto en `http://localhost:5173`. En móvil, usa tu IP local para probar el layout responsive.
 
-## Build
+## Construcción
 ```bash
 npm run build
 npm run preview
@@ -112,7 +114,7 @@ bienvenida ya no aparece; una clave corrupta, un array o un `id` que no sea un
 UUID cuentan como "no hay sesión"; "Comenzar" guarda la sesión y entra en Inicio;
 y cerrar sesión borra solo esa clave, deja los datos donde estaban y pregunta
 antes con un único diálogo.
-**1015 comprobaciones.**
+**1025 comprobaciones.**
 
 Lo que la suite no alcanza está en
 [`docs/VERIFICACION_MANUAL.md`](docs/VERIFICACION_MANUAL.md): fidelidad con el
@@ -129,10 +131,15 @@ npm run test:diciembre  # 31 de diciembre de 2026
 ```
 
 Las tres fechas están elegidas a propósito: octubre es el mes del seed, febrero
-tiene cuatro semanas y diciembre cae en un mes de31 días que hace saltar la
+tiene cuatro semanas y diciembre cae en un mes de 31 días que hace saltar la
 cuadrícula. Con fechas literales en las pruebas, en febrero y diciembre no
 habría eventos que encontrar y la suite pasaría por falta de datos en vez de por
 funcionamiento.
+
+La semana que cruza el año tiene comprobaciones propias: `?vista=semana&fecha=2026-12-31`
+y `?vista=semana&fecha=2027-01-01` tienen que dar la misma semana, del 28 de
+diciembre al 3 de enero, cambiando solo la columna resaltada. En octubre cualquier
+fecha cae dentro de la semana en curso y ese fallo no se vería.
 
 Y para lo que no se puede automatizar desde aquí: **no hay smoke test en
 navegador**. La cobertura llega al DOM real con jsdom, pero no al ancho de la
@@ -152,7 +159,7 @@ encuentra caracteres fuera del alfabeto latino y de los signos del español
 saltos de línea mezclados o un fichero sin salto final.
 
 Existe porque **el linter no puede ver este fallo**. Un fichero puede compilar,
-pasar los 1015 tests y llevar tres palabras en chino en medio de una frase en
+pasar los 1025 tests y llevar tres palabras en chino en medio de una frase en
 español: no hay error de sintaxis que lo delate. Ha pasado siete veces en este
 proyecto. Los símbolos que sí se usan a propósito (flechas, `§`, `°`, `❤`) están
 en la lista de permitidos del script, cada uno con su motivo, para que ampliar la
@@ -164,6 +171,48 @@ partidos en varias líneas y un rango mal escrito no se vería hasta que falla.
 
 Conviene ejecutarlo antes de cerrar cada paso, junto a `npm test`,
 `npm run lint` y `npm run build`.
+
+## Auditoría de idioma
+
+```bash
+npm run auditar-idioma                  # docs/, README.md, src/ y scripts/
+npm run auditar-idioma -- --mensajes    # los mensajes de commit, con git log
+```
+
+Busca palabras inglesas dentro de frases en español y sale con código 1 si
+encuentra alguna. La lista son 168 palabras funcionales (`the`, `and`, `with`,
+`which`, `is`, `not`…), agrupadas por lo que son y con el motivo de cada grupo.
+
+Existe por la misma razón que la otra auditoría y por un motivo peor: **una
+palabra en otro idioma es latina, así que la auditoría de codificación no la ve**,
+y tampoco el linter. En este proyecto han salido media docena ("La manages",
+"affirmed", "yuir", "puntokeyboard"), y cada vez que se corregía una aparecía otra
+en el fichero siguiente. Una revisión a mano depende de que alguien la haga; esto
+no.
+
+Qué ignora, y por qué:
+
+- **En Markdown**, las vallas de código, el código en línea, las etiquetas HTML y
+  el destino de los enlaces. El destino se quita porque es una URL, y `date-fns` no
+  es una palabra inglesa escrita en una frase.
+- **En JavaScript**, todo menos los comentarios. Los identificadores vienen del
+  inglés por acuerdo (`useState`, `localStorage`) y revisarlos sería rechazarlos.
+- **Dentro de los comentarios**, las líneas que son código (empiezan por palabra
+  clave, llevan `=>`, terminan en `;` o tienen llaves), los tipos entre llaves
+  (`{Promise<any>}`) y las etiquetas de JSDoc.
+- **Las tildes**, antes de comparar: sin eso, el patrón de letras parte una palabra
+  acentuada en dos y el escaneo ve una palabra inglesa donde no la hay. Pasaba con
+  cualquier palabra terminada en «-ían».
+
+Hay una lista corta de excepciones, cada una con su motivo escrito: `check` (la
+restricción de PostgreSQL), `hook` (préstamo del proyecto) y `build` (la tarea de
+construcción). Ampliarla es una decisión visible, no un descuido.
+
+Dos palabras que están fuera a propósito, y conviene saber por qué: **`use` no se
+vigila**, porque "quien use" es el subjuntivo de "usar" (el primer escaneo avisó
+seis veces y las seis eran eso), y **`a` no se vigila**, porque es la preposición
+española. Un auditor de idioma que se apaga por dar seis falsos positivos no vuelve
+a mirarse.
 
 ## Notas importantes
 - **Sesión simulada, no autenticación:** "Comenzar" escribe `juntos:v1:sesion` y las guardas de `App.jsx` la comprueban para decidir si se ve la bienvenida o la app. La clave se puede escribir a mano desde la consola del navegador, así que no protege datos ni separa parejas: solo evita repetir el primer pantallazo. Marcado con `SEGURIDAD:` y `TODO-FASE2 (SEGURIDAD)` en el código, en `docs/SEGURIDAD.md` y en la propia pantalla de Configuración.

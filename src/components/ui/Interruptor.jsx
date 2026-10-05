@@ -3,7 +3,7 @@
  *
  * RESPONSABILIDAD: el conmutador de "Solo favoritas" del planeador.
  *
- * Un `<input type="checkbox">` con estilos-appearance-none no es un interruptor
+ * Un `<input type="checkbox">` con estilos `appearance-none` no es un interruptor
  * accesible: el papel que anuncia un lector de pantalla es "casilla", no
  * "interruptor", y el estado se anuncia como "marcada" en lugar de
  * "activado". Se implementa como `role="switch"` sobre un `button`, que es el

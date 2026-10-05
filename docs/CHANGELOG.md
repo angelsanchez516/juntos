@@ -56,15 +56,17 @@ la semana del reloj.
 - **Dos comprobaciones medían el almacén equivocado.** En la sección de DOM del test, `globalThis.window` pasa a ser la ventana de jsdom, que trae su propio `localStorage`; la variable `storage` del principio queda como un almacén muerto. "Y nada se ha borrado todavía" y "la sesión sobrevive al restablecimiento" leían de ahí, así que daban verde sin comprobar nada de lo que la app usa. Ahora leen de `globalThis.window.localStorage`.
 
 ### Verificación
-- `npm test`: 1015 comprobaciones, 0 fallos, estable en 3 pasadas seguidas.
-- Fechas simuladas: `npm run test:octubre`, `npm run test:febrero` y `npm run test:diciembre`, las tres con 1015 y 0 fallos.
+- `npm test`: 1025 comprobaciones, 0 fallos, estable en 3 pasadas seguidas.
+- Fechas simuladas: `npm run test:octubre`, `npm run test:febrero` y `npm run test:diciembre`, las tres con 1025 y 0 fallos.
 - `npm run lint`: 0 avisos y 0 errores.
 - `npm run build`: correcto.
-- `npm run auditar-codificacion`: 73 ficheros, 0 problemas.
+- `npm run auditar-codificacion`: 74 ficheros, 0 problemas.
+- `npm run auditar-idioma`: 64 ficheros, 0 problemas. Con `-- --mensajes`: los 9 mensajes de commit, 0 problemas.
 - La sesión se prueba de punta a punta y montada con `App` dentro de un `MemoryRouter`: sin ella, ninguna ruta de dentro del layout enseña nada; con ella, `/bienvenida` salta a Inicio; `Comenzar` guarda la sesión y entra; cerrar sesión borra solo esa clave y devuelve a la bienvenida con los datos intactos.
 - Las tres vistas se prueban montadas, con DOM real y pulsaciones: el conmutador escribe en la URL, las flechas mueven el período de cada vista, "Hoy" vuelve al día en curso, y una URL manipulada (`?vista=trimestre`, `?fecha=2026-10-99`) cae en algo válido sin NaN.
 - Las comprobaciones de las vistas se anclan al reloj y no a octubre de 2026. Con fechas literales, en febrero y diciembre no habría eventos que encontrar y las pruebas pasarían por falta de datos en vez de por funcionamiento.
 - Hay pruebas de cruce de año, no solo de mes: la semana del 28 de diciembre de 2026 al 3 de enero de 2027, y la navegación del 31 de diciembre al 1 de enero. Es justo el caso en el que un título, un índice de día o un salto de semana se rompen sin que en octubre se note.
+- **Los dos anclajes que cruzan el año se comprueban por URL, no por presunción.** `?vista=semana&fecha=2026-12-31` y `?vista=semana&fecha=2027-01-01` tienen que enseñar la misma semana, con el título `28 dic – 3 ene`, y cambiar solo la columna resaltada: la del jueves en el primer caso y la del viernes en el segundo. También que el enlace directo a esa semana funcione con `Link`, y que el reloj simulado en diciembre y en el mes siguiente dé el mismo resultado. Diez comprobaciones nuevas; sin ellas, el caso de `fechaAParametro()` y `elegirDiaResaltado()` solo se veía en octubre, donde cualquier fecha cae dentro de la semana y nada se rompe.
 - Todo lo que la suite no alcanza está en `docs/VERIFICACION_MANUAL.md`. Las casillas siguen vacías.
 
 ---
@@ -83,6 +85,29 @@ la semana del reloj.
 ### Verificación
 - Comprobado con un fichero temporal que mezcla ideograma, cirílico y hebreo: los tres se detectan con su bloque y su número.
 - Los comentarios corregidos en el paso f (`quienchoosable`, `discovered`, `throwing`) salen limpios.
+
+---
+
+## Auditoría de idioma
+
+### Añadido
+- **`npm run auditar-idioma`** (`scripts/auditar-idioma.mjs`): escanea la prosa del proyecto y falla con código 1 ante palabras inglesas en medio de frases en español. Revisa `docs/`, `README.md`, los comentarios de `src/` y los de `scripts/`.
+- **`npm run auditar-idioma -- --mensajes`**: lo mismo sobre los mensajes de commit, que se leen con `git log`. No los arregla, porque corregir un mensaje ya escrito es reescribir la historia.
+
+### Decisiones
+- **El fallo que busca también es invisible al linter, y además lo ve la otra auditoría.** Una palabra inglesa es perfectamente latina, así que `auditar-codificacion` no puede verla. Ha pasado media docena de veces en este proyecto, y la última en el informe de este mismo paso: `La manages`, `affirmed`, `respected`, `yuir`, `puntokeyboard`. Cada vez que se corregía una aparecía otra en el fichero siguiente, que es la señal de que hacía falta una comprobación automática y no más revisión a mano.
+- **La lista son 168 palabras funcionales**, declaradas por grupos y con el motivo de cada uno. Solo entran las que no existen en ningún uso del español.
+- **`use` y `a` no se vigilan, a propósito.** `use` es el subjuntivo de "usar" ("quien use") y `a` es la preposición española. El primer escaneo avisó de `use` seis veces y las seis eran español; un auditor que se apaga por eso no vuelve a mirarse.
+- **Lo que no es prosa se quita antes de comparar.** En Markdown, las vallas de código, el código en línea, las etiquetas HTML y el destino de los enlaces; en los comentarios, las líneas que son código, los tipos entre llaves y las etiquetas de JSDoc. Los identificadores vienen del inglés por acuerdo (`useState`, `localStorage`) y revisarlos sería rechazarlos.
+- **Las tildes se quitan antes de comparar.** Un patrón de letras ASCII parte "funcionarían" en dos palabras y avisaba de una inglesa inexistente; lo mismo pasaba con "Mayús" y "foránea". Es la causa de la mayoría de los falsos positivos del primer escaneo.
+- **Tres excepciones, cada una con su motivo escrito**: `check` (la restricción de PostgreSQL), `hook` (préstamo del proyecto) y `build` (la tarea de construcción). Ampliar la lista es una decisión visible.
+- **El script se autoexcluye.** Es el único fichero que lleva la lista de palabras inglesas dentro, y la lleva a propósito.
+- **El aviso enseña el trozo de texto con la palabra en medio**, buscada con sus límites: con `indexOf` el aviso acababa señalando media línea antes del fallo, que es peor que no señalar nada.
+
+### Verificación
+- 64 ficheros revisados y 0 problemas, después de corregir lo que el primer escaneo encontró de verdad: el encabezado `## Build` del README, `appearance-none` sin acentuar en `Interruptor.jsx`, un comentario en inglés de `eventosService.js` y dos citas del aviso de React escritas en inglés y sin acentuar, ahora entre comillas invertidas.
+- Comprobado con dos ficheros temporales: detecta la palabra en la prosa de un `.md` y en un comentario de bloque de un `.mjs`, y no avisa de la que estaba dentro de un bloque de código ni de la que estaba en código en línea.
+- Los 9 mensajes de commit revisados salen limpios. Cinco decían "build correcto", que es el mismo préstamo que la excepción declara.
 
 ---
 

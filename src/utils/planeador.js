@@ -163,8 +163,8 @@ function leerParametro(busqueda, nombre) {
  * DEVUELVE UNA CADENA VACÍA CUANDO NO HAY NADA QUE FILTRAR. Es lo que mantiene
  * la URL limpia: con ningún filtro activo la ruta es `/planeador`, y no
  * `/planeador?categoria=todas`. Devolver `undefined` desde un componente de
- * React Router provoca el aviso "Cannot update a component while rendering a
- * different component", así que se devuelve siempre una cadena.
+ * React Router provoca el aviso `Cannot update a component while rendering a
+ * different component`, así que se devuelve siempre una cadena.
  *
  * Los filtros que ya estaban en la URL y no forman parte de estos dos se
  * conservan, por ejemplo `?mes=`, para que el planeador no borre parámetros que

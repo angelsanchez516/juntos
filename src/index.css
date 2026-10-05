@@ -6,6 +6,8 @@
  * tipografía, scrollbars y utilidades de safe area en iOS).
  *
  * Related: tailwind.config.js (define los tokens que aquí se consumen)
+ *
+ * @module styles/index
  */
 
 /* Las tres directivas de Tailwind: Preflight, utilidades y componentes. */

@@ -5,6 +5,8 @@
  * global. La composición de rutas vive en src/App.jsx.
  *
  * Related: src/App.jsx
+ *
+ * @module main
  */
 
 import { StrictMode } from 'react';

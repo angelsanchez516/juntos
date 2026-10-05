@@ -111,6 +111,23 @@ la semana del reloj.
 
 ---
 
+## Auditoría de cabeceras y documentación
+
+### Añadido
+- **`npm run auditar-docs`** (`scripts/auditar-docs.mjs`): recorre `src/`, `scripts/` y `test-datos.mjs`, avisa de un fichero sin cabecera y de una exportación sin JSDoc, y enseña un resumen "X de Y" por tipo (archivos, componentes, hooks, funciones y constantes). Falla con código 1, y el resumen se imprime antes de los avisos: un recuento que solo sale cuando todo está bien no sirve para ver quién añadió el último fichero sin documentar.
+
+### Decisiones
+- **La regla es la que ya se cumplía a mano**, no una más fácil. Cada fichero tiene que empezar con un bloque de cabecera y ese bloque tiene que declarar `@module`. Los tres ficheros que no lo hacían (`src/main.jsx`, `src/index.css` y `test-datos.mjs`) se corrigieron en vez de relajar la regla para que pasasen: relajar la auditoría para que el código pase es justo cómo una auditoría deja de servir.
+- **La clasificación de exportaciones es por nombre**, como manda React: `use` y mayúscula es hook, mayúscula con flecha o llamada es componente, y el resto son funciones y constantes. Se separa por tipo porque cada tipo falla de forma distinta, y porque saber que faltan 1 de 5 hooks importa más que saber que faltan 3 de 114 funciones.
+- **Un `//` encima no cuenta como JSDoc.** Se lee igual de bien, pero es lo que copian las herramientas y lo que alguien reutiliza al llamar a la función.
+- **El script se aparta a sí mismo** de la revisión, por la misma razón que `auditar-idioma`: es el fichero que lleva dentro el patrón que busca.
+
+### Verificación
+- 59 ficheros revisados: 59 de 59 con cabecera, 65 de 65 componentes, 5 de 5 hooks, 114 de 114 funciones y 20 de 20 constantes con JSDoc.
+- Comprobado que falla de verdad: con un fichero temporal sin cabecera y con dos exportaciones sin documentar, los tres aparecen y el comando sale con código 1.
+
+---
+
 ## Paso f — Galería
 
 ### Añadido

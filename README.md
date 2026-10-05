@@ -27,6 +27,7 @@
 - [x] **Sesión simulada** (paso g): `juntos:v1:sesion`, guardas de ruta en los dos sentidos y "Comenzar" como única entrada. No es autenticación
 - [x] **Reloj inyectable** (`src/utils/reloj.js`) y suites con fecha simulada para octubre, febrero y diciembre
 - [x] **Auditoría de idioma** (`npm run auditar-idioma`), que busca palabras inglesas en la prosa del proyecto
+- [x] **Auditoría de cabeceras y documentación** (`npm run auditar-docs`), que exige cabecera en cada fichero y JSDoc en cada exportación
 - [ ] Pulido final y paso h
 
 ## Requisitos
@@ -213,6 +214,38 @@ vigila**, porque "quien use" es el subjuntivo de "usar" (el primer escaneo avis�
 seis veces y las seis eran eso), y **`a` no se vigila**, porque es la preposición
 española. Un auditor de idioma que se apaga por dar seis falsos positivos no vuelve
 a mirarse.
+
+## Auditoría de cabeceras y documentación
+
+```bash
+npm run auditar-docs
+```
+
+Avisa de un fichero sin cabecera y de una exportación sin JSDoc, y enseña un
+resumen "X de Y" por tipo:
+
+```
+Ficheros revisados: 59
+
+archivo      59 de 59
+componente   65 de 65
+hook          5 de 5
+funcion     114 de 114
+constante    20 de 20
+```
+
+Lo que exige es lo que el proyecto ya hacía a mano: cada fichero empieza con un
+bloque de cabecera que declara su `RESPONSABILIDAD` y su `@module`, y cada
+función, hook, componente y constante exportada lleva JSDoc encima. Sale con
+código 1 si algo falla, y el resumen se imprime igual, porque un recuento que
+solo aparece cuando todo está bien no sirve para ver quién añadió el último
+fichero sin documentar.
+
+La clasificación es por nombre, como manda React: lo que empieza por `use` y
+mayúscula es un hook, lo que empieza por mayúscula y contiene una flecha o una
+llamada es un componente, y el resto son funciones y constantes. Está separado
+por tipo porque cada tipo falla distinto: un hook sin JSDoc es el peor caso,
+porque su firma no dice cuándo se llama ni qué devuelve.
 
 ## Notas importantes
 - **Sesión simulada, no autenticación:** "Comenzar" escribe `juntos:v1:sesion` y las guardas de `App.jsx` la comprueban para decidir si se ve la bienvenida o la app. La clave se puede escribir a mano desde la consola del navegador, así que no protege datos ni separa parejas: solo evita repetir el primer pantallazo. Marcado con `SEGURIDAD:` y `TODO-FASE2 (SEGURIDAD)` en el código, en `docs/SEGURIDAD.md` y en la propia pantalla de Configuración.

@@ -13,7 +13,8 @@
     "test:febrero": "node test-datos.mjs 2027-02-28",
     "test:diciembre": "node test-datos.mjs 2026-12-31",
     "auditar-codificacion": "node scripts/auditar-codificacion.mjs",
-    "auditar-idioma": "node scripts/auditar-idioma.mjs"
+    "auditar-idioma": "node scripts/auditar-idioma.mjs",
+    "auditar-docs": "node scripts/auditar-docs.mjs"
   },
   "dependencies": {
     "date-fns": "^4.4.0",

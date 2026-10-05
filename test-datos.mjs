@@ -14,6 +14,11 @@
  * distintas: `npm run test:octubre` y `npm run test:febrero`.
  *
  * Ejecutar con: npm test
+ *
+ * Related: src/services/*, src/utils/*, docs/VERIFICACION_MANUAL.md (lo que la
+ * suite no alcanza)
+ *
+ * @module test-datos
  */
 import { createServer } from 'vite';
 import { createRequire } from 'module';

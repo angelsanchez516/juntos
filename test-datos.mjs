@@ -1249,16 +1249,20 @@ async function montar(elemento) {
      *
      * @param {Element} el Elemento que emite el evento.
      * @param {string} tipo Nombre del evento, por ejemplo `'error'`.
+     * @param {object} [opciones] Más opciones para el constructor del evento. Hace
+     *   falta `bubbles: true` para los que React escucha en la raíz, como
+     *   `change`: los que no burbujean —`error`, `load`— los escucha React
+     *   directamente en el elemento, y por eso aquí van sin burbuja.
      * @returns {Promise<void>} Termina cuando React ha repintado.
      * @example
      * await app.disparar(imagen, 'error');
      */
-    async disparar(el, tipo) {
+    async disparar(el, tipo, opciones = {}) {
       if (!el) {
         throw new Error(`disparar() no encontró el elemento para el evento "${tipo}".`);
       }
       await act(async () => {
-        el.dispatchEvent(new dom.window.Event(tipo, { bubbles: false }));
+        el.dispatchEvent(new dom.window.Event(tipo, { bubbles: false, ...opciones }));
       });
     },
 
@@ -3667,6 +3671,251 @@ comprobar('y el filtro sigue en la URL', ecoUrl().includes('anio=2025'), ecoUrl(
 await appChoqueInexistente.desmontar();
 await ev.resetEventos();
 
+
+/*
+ * ---------------------------------------------------------------------------
+ * INTEGRACIÓN: los dos flujos completos, de una pantalla a otra.
+ *
+ * Hasta aquí cada pantalla se ha probado sola, con sus propios datos. Eso
+ * comprueba que el botón guarde y que la tabla pinte, pero no que los dos
+ * extremos hablen: que lo que escribe el formulario de Inicio sea lo mismo que
+ * lee la galería, y que lo que convierte una idea siga siendo editable en el
+ * calendario. Estos dos flujos son los que se quedan sin probar si cada bloque
+ * monta su propia página, y son exactamente los que se hacen a mano.
+ *
+ * Van montados con `App`, que es como la monta `main.jsx`, y con la fecha
+ * fijada, para que el mes que enseña el calendario no dependa del día en que se
+ * ejecute la suite.
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * Pone un doble de las dos APIs del navegador que jsdom no trae.
+ *
+ * `createImageBitmap` y el `canvas` no existen en jsdom, así que la foto de
+ * verdad no se puede decodificar ni recomprimir ahí. Lo que se dobla es solo el
+ * desenho: el `File` que se entrega es real, los bytes los comprueba la
+ * validación de verdad, y el `dataUrl` que sale del doble es el que acaba
+ * guardado en el evento. Todo lo demás —que el formulario acepte la foto, que la
+ * valide, que la guarde y que la pinten las otras pantallas— es el código real.
+ *
+ * El `toDataURL` devuelve un PNG de 1x1, que es lo mismo que usa la prueba de
+ * "la foto guardada sobrevive a la recarga": así el almacén acaba con una foto
+ * pequeña en vez de con una de 1200 px.
+ *
+ * @returns {void}
+ */
+function doblarLienzo() {
+  globalThis.createImageBitmap = async () => ({ width: 1200, height: 800, close() {} });
+
+  dom.window.HTMLCanvasElement.prototype.getContext = function contextoDeDoble() {
+    return {
+      imageSmoothingEnabled: true,
+      imageSmoothingQuality: 'high',
+      fillStyle: '',
+      fillRect() {},
+      drawImage() {},
+    };
+  };
+  dom.window.HTMLCanvasElement.prototype.toDataURL = function datosDeDoble(tipo) {
+    return `data:${tipo ?? 'image/png'};base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==`;
+  };
+}
+
+/**
+ * Elige un fichero de foto real y lo pone en el campo de archivo del formulario.
+ *
+ * `files` es de solo lectura, así que se sustituye por completo: asignarlo no
+ * dispararía el `change` de React y el formulario se quedaría sin foto.
+ *
+ * @param {object} app Utilidades de la prueba montada.
+ * @param {string} nombre Nombre del fichero, con su extensión.
+ * @returns {Promise<File>} El fichero entregado al campo.
+ */
+async function elegirFoto(app, nombre = 'recuerdo.png') {
+  const binario = Uint8Array.from(atob(FOTO_PNG.split(',')[1]), (c) => c.charCodeAt(0));
+  const fichero = new dom.window.File([binario], nombre, { type: 'image/png' });
+  const campo = document.querySelector('input[type="file"]');
+
+  Object.defineProperty(campo, 'files', { value: [fichero], configurable: true });
+  await app.disparar(campo, 'change', { bubbles: true });
+
+  return fichero;
+}
+
+console.log('\n== Integración: del evento con foto a las otras pantallas ==');
+doblarLienzo();
+rj.fijarAhora('2026-10-02');
+almacen().removeItem(claveSesion);
+await ev.resetEventos();
+
+/**
+ * Busca un botón dentro del diálogo que hay abierto.
+ *
+ * No se usa `porTextoGlobal` a propósito: el botón "Agregar evento" del
+ * calendario está detrás del formulario y aparece antes en el documento, así que
+ * el buscador global devolvería ese y se mediría el botón equivocado. Pulsar el
+ * de detrás no falla de forma visible: no pasa nada y el formulario sigue abierto.
+ *
+ * @param {string} texto Texto del botón.
+ * @returns {Element|undefined} El botón del diálogo, si está.
+ */
+const botonDelDialogo = (texto) =>
+  [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.includes(texto));
+
+/**
+ * Lee el texto de un aviso de error del formulario.
+ *
+ * @returns {string} El aviso, o cadena vacía si no hay ninguno.
+ */
+const errorDelFormulario = () =>
+  [...document.querySelectorAll('[role="dialog"] p')].map((p) => p.textContent).find((t) => /obligatorio|válid|inválid|no puede/i.test(t)) ?? '';
+
+const appIntegracion = await montarApp('/bienvenida');
+await act(async () => {});
+await appIntegracion.pulsar(botonComenzar(appIntegracion.raiz), 'el botón "Comenzar" de la bienvenida');
+await act(async () => {});
+comprobar('el flujo empieza en la bienvenida y entra en la app', rutaDe(appIntegracion) === '/' && dentroDeLaApp(appIntegracion.raiz), rutaDe(appIntegracion));
+
+await appIntegracion.pulsar(
+  appIntegracion.porTexto('a', 'Calendario'),
+  'el enlace "Calendario" de la navegación',
+);
+await act(async () => {});
+comprobar('y llega al calendario por la navegación, no por la URL', rutaDe(appIntegracion) === '/calendario', rutaDe(appIntegracion));
+
+await appIntegracion.pulsar(
+  appIntegracion.porTexto('button', 'Agregar evento'),
+  'el botón "Agregar evento" del calendario',
+);
+await act(async () => {});
+const dialogoNuevo = document.querySelector('[role="dialog"]');
+comprobar('el formulario se abre encima del calendario', dialogoNuevo !== null && document.querySelector('[id="ev-titulo"]') !== null, 'sin formulario');
+
+await appIntegracion.escribir(document.querySelector('[id="ev-titulo"]'), 'Cena de la integración');
+await appIntegracion.escribir(document.querySelector('[id="ev-fecha"]'), '2026-10-20');
+await elegirFoto(appIntegracion);
+await act(async () => {});
+
+comprobar('la foto se acepta y se enseña en el formulario', dialogoNuevo.querySelector('img') !== null, 'sin vista previa');
+comprobar('y su vista previa es la foto elegida, no un marcador', (dialogoNuevo.querySelector('img')?.getAttribute('src') ?? '').startsWith('data:image/'), dialogoNuevo.querySelector('img')?.getAttribute('src') ?? 'sin imagen');
+
+await appIntegracion.pulsar(botonDelDialogo('Agregar evento'), 'el botón "Agregar evento" del formulario');
+await act(async () => {});
+comprobar('guardar cierra el formulario', document.querySelector('[role="dialog"]') === null, errorDelFormulario() || 'el formulario sigue abierto');
+
+const creadoEnIntegracion = (await ev.getEventos()).find((e) => e.titulo === 'Cena de la integración');
+comprobar('el evento se ha creado con los datos escritos', creadoEnIntegracion !== undefined, 'no está en el almacén');
+comprobar('con la fecha del campo de fecha, no la del reloj', creadoEnIntegracion?.fecha === '2026-10-20', creadoEnIntegracion?.fecha);
+comprobar('y con la foto que se eligió', typeof creadoEnIntegracion?.foto === 'string' && creadoEnIntegracion.foto.startsWith('data:image/'), `tipo ${typeof creadoEnIntegracion?.foto}`);
+comprobar('el calendario lo enseña sin volver a cargar la página', appIntegracion.raiz.textContent.includes('Cena de la integración'), 'el calendario no lo pinta');
+await appIntegracion.desmontar();
+
+// Y ahora el mismo evento en las otras dos pantallas, ya con la sesión creada.
+const appCalendarioFoto = await montarApp('/calendario?mes=2026-10');
+await act(async () => {});
+comprobar('al volver al calendario sigue en su mes', appCalendarioFoto.raiz.textContent.includes('Cena de la integración'), appCalendarioFoto.raiz.textContent.slice(0, 160));
+await appCalendarioFoto.desmontar();
+
+const appGaleriaFoto = await montarGaleria();
+comprobar('la galería lo ve, porque es una foto más', celdas(appGaleriaFoto.raiz).some((a) => a.getAttribute('href') === `/evento/${creadoEnIntegracion?.id}`), celdas(appGaleriaFoto.raiz).map((a) => a.getAttribute('href')).join('|'));
+await appGaleriaFoto.desmontar();
+
+const appDetalleFoto = await montarApp(`/evento/${creadoEnIntegracion?.id}`);
+await act(async () => {});
+comprobar('el detalle se abre con su título', appDetalleFoto.raiz.textContent.includes('Cena de la integración'), appDetalleFoto.raiz.textContent.slice(0, 160));
+comprobar('y con la foto', appDetalleFoto.raiz.querySelector('img[src^="data:image/"]') !== null, 'sin foto en el detalle');
+comprobar('ofrece editar y eliminar', appDetalleFoto.porTexto('button', 'Editar') !== null && appDetalleFoto.porTexto('button', 'Eliminar') !== null, 'faltan los botones');
+
+// Editar desde el detalle: el formulario viene con lo que había y guarda encima.
+await appDetalleFoto.pulsar(appDetalleFoto.porTexto('button', 'Editar'), 'el botón "Editar" del detalle');
+await act(async () => {});
+comprobar('el formulario de edición viene relleno', document.querySelector('[id="ev-titulo"]')?.value === 'Cena de la integración', document.querySelector('[id="ev-titulo"]')?.value);
+comprobar('y avisa de que es una edición', document.querySelector('[role="dialog"]')?.textContent.includes('Editar evento'), document.querySelector('[role="dialog"]')?.textContent.slice(0, 80));
+comprobar('con la foto ya puesta, sin volver a elegirla', document.querySelector('[role="dialog"] img')?.getAttribute('src')?.startsWith('data:image/') === true, 'sin foto en la edición');
+
+await appDetalleFoto.escribir(document.querySelector('[id="ev-titulo"]'), 'Cena de la integración, editada');
+await appDetalleFoto.pulsar(botonDelDialogo('Guardar cambios'), 'el botón "Guardar cambios" del formulario');
+await act(async () => {});
+comprobar('la edición cierra el formulario', document.querySelector('[role="dialog"]') === null, errorDelFormulario() || 'el formulario sigue abierto');
+comprobar('el detalle enseña el título nuevo, y no una lista de los dos', appDetalleFoto.raiz.querySelector('h1')?.textContent.trim() === 'Cena de la integración, editada', appDetalleFoto.raiz.querySelector('h1')?.textContent ?? 'sin título');
+comprobar('el almacén tiene el título nuevo', (await ev.getEventos()).find((e) => e.id === creadoEnIntegracion.id)?.titulo === 'Cena de la integración, editada', (await ev.getEventos()).find((e) => e.id === creadoEnIntegracion.id)?.titulo);
+comprobar('y la foto se conserva al editar', (await ev.getEventos()).find((e) => e.id === creadoEnIntegracion.id)?.foto?.startsWith('data:image/') === true, 'la foto se perdió');
+
+// Borrar: pregunta, y solo borra si se confirma.
+await appDetalleFoto.pulsar(appDetalleFoto.porTexto('button', 'Eliminar'), 'el botón "Eliminar" del detalle');
+await act(async () => {});
+comprobar('borrar pide confirmación antes de nada', document.querySelector('[role="alertdialog"]') !== null, 'no pregunta');
+comprobar('y sigue ahí mientras no se confirme', (await ev.getEventos()).some((e) => e.id === creadoEnIntegracion.id), 'se borró sin preguntar');
+
+await appDetalleFoto.pulsar(
+  [...document.querySelectorAll('[role="alertdialog"] button')].find((b) => b.textContent.trim() === 'Sí, eliminar'),
+  'el botón "Sí, eliminar"',
+);
+await act(async () => {});
+comprobar('confirmar sí lo borra del almacén', !(await ev.getEventos()).some((e) => e.id === creadoEnIntegracion.id), 'sigue en el almacén');
+comprobar('y se vuelve al calendario', rutaDe(appDetalleFoto) === '/calendario', rutaDe(appDetalleFoto));
+await appDetalleFoto.desmontar();
+
+const appGaleriaTrasBorrar = await montarGaleria();
+comprobar('la foto ya no está en la galería', !celdas(appGaleriaTrasBorrar.raiz).some((a) => a.getAttribute('href') === `/evento/${creadoEnIntegracion.id}`), 'la foto sigue');
+await appGaleriaTrasBorrar.desmontar();
+
+console.log('\n== Integración: una idea convertida en evento ==');
+doblarLienzo();
+// La sesión se crea aquí y no pulsando "Comenzar" otra vez: el recorrido de la
+// bienvenida ya está comprobado arriba, y aquí lo que interesa es que la guarda
+// deje pasar al planeador.
+se.crearSesion();
+await ev.resetEventos();
+await ci.resetCitas();
+
+const appPlaneadorIntegracion = await montarApp('/planeador');
+await act(async () => {});
+comprobar('el seed trae ideas con imagen para convertir', (await ci.getIdeasCitas()).some((i) => typeof i.imagen === 'string' && i.imagen !== ''), 'ninguna idea con imagen');
+
+await appPlaneadorIntegracion.pulsar(
+  appPlaneadorIntegracion.porTexto('button', 'Convertir en evento'),
+  'el botón "Convertir en evento" de una idea',
+);
+await act(async () => {});
+
+// La idea de la que sale el formulario se lee del propio formulario, y no de la
+// lista antes de pulsarla: si el orden de las tarjetas cambiara, la comprobación
+// mediría otra idea y daría verde sin haber mirado la que se convirtió.
+const ideaDelFormulario = (await ci.getIdeasCitas()).find((i) => i.titulo === document.querySelector('[id="ev-titulo"]')?.value);
+comprobar('la conversión abre el formulario de evento', document.querySelector('[role="dialog"] [id="ev-titulo"]') !== null, 'sin formulario');
+comprobar('con el título de la idea ya puesto', ideaDelFormulario !== undefined, document.querySelector('[id="ev-titulo"]')?.value);
+comprobar('y con su imagen convertida en foto', document.querySelector('[role="dialog"] img')?.getAttribute('src') === ideaDelFormulario?.imagen, document.querySelector('[role="dialog"] img')?.getAttribute('src') ?? 'sin foto');
+comprobar('la fecha viene vacía a propósito, porque la idea no la tenía', document.querySelector('[id="ev-fecha"]')?.value === '', document.querySelector('[id="ev-fecha"]')?.value);
+
+await appPlaneadorIntegracion.escribir(document.querySelector('[id="ev-fecha"]'), '2026-10-21');
+await appPlaneadorIntegracion.pulsar(botonDelDialogo('Agregar evento'), 'el botón "Agregar evento" del formulario de conversión');
+await act(async () => {});
+comprobar('convertir avisa de que ya está en el calendario', /ya est[aá] en el calendario/.test(appPlaneadorIntegracion.raiz.textContent), errorDelFormulario() || appPlaneadorIntegracion.raiz.textContent.slice(0, 200));
+comprobar('y la idea sigue en la lista, por si quieren repetirla', appPlaneadorIntegracion.raiz.textContent.includes(ideaDelFormulario.titulo), 'la idea desapareció');
+await appPlaneadorIntegracion.desmontar();
+
+const eventoConvertido = (await ev.getEventos()).find((e) => e.titulo === ideaDelFormulario.titulo);
+comprobar('el evento creado sale del almacén', eventoConvertido !== undefined, 'no está');
+comprobar('con la fecha que se escribió', eventoConvertido?.fecha === '2026-10-21', eventoConvertido?.fecha);
+comprobar('y con la imagen de la idea', eventoConvertido?.foto === ideaDelFormulario.imagen, eventoConvertido?.foto ?? 'sin foto');
+comprobar('la idea no se borró al convertirla', (await ci.getIdeasCitas()).some((i) => i.id === ideaDelFormulario.id), 'la idea ya no está');
+
+const appCalendarioConvertido = await montarApp('/calendario?mes=2026-10');
+await act(async () => {});
+comprobar('el evento convertido se ve en el calendario', appCalendarioConvertido.raiz.textContent.includes(ideaDelFormulario.titulo), appCalendarioConvertido.raiz.textContent.slice(0, 160));
+await appCalendarioConvertido.desmontar();
+
+const appGaleriaConvertida = await montarGaleria();
+comprobar('y también en la galería, con su foto', celdas(appGaleriaConvertida.raiz).some((a) => a.getAttribute('href') === `/evento/${eventoConvertido.id}`), celdas(appGaleriaConvertida.raiz).map((a) => a.getAttribute('href')).join('|'));
+await appGaleriaConvertida.desmontar();
+
+// El almacén y el reloj se dejan como estaban al entrar en este bloque.
+await ev.resetEventos();
+await ci.resetCitas();
+almacen().removeItem(claveSesion);
+rj.restablecerAhora();
 
 await vite.close();
 console.log(`\n${fallos === 0 ? 'TODO OK' : `${fallos} FALLOS`} — ${pruebas} pruebas, ${fallos} fallos`);

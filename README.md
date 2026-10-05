@@ -115,7 +115,14 @@ bienvenida ya no aparece; una clave corrupta, un array o un `id` que no sea un
 UUID cuentan como "no hay sesión"; "Comenzar" guarda la sesión y entra en Inicio;
 y cerrar sesión borra solo esa clave, deja los datos donde estaban y pregunta
 antes con un único diálogo.
-**1025 comprobaciones.**
+**1065 comprobaciones.**
+
+Dos de ellas son los flujos completos, montados con la app entera y no pantalla
+por pantalla: el de un recuerdo con foto (bienvenida, "Comenzar", calendario,
+"Agregar evento", elegir foto, verlo en el calendario, en la galería y en su
+detalle, editarlo y borrarlo) y el de una idea del planeador convertida en
+evento. Lo que cada pantalla guarda por su lado ya estaba comprobado; lo que no
+estaba es que los dos extremos se hablaran.
 
 Lo que la suite no alcanza está en
 [`docs/VERIFICACION_MANUAL.md`](docs/VERIFICACION_MANUAL.md): fidelidad con el
@@ -160,7 +167,7 @@ encuentra caracteres fuera del alfabeto latino y de los signos del español
 saltos de línea mezclados o un fichero sin salto final.
 
 Existe porque **el linter no puede ver este fallo**. Un fichero puede compilar,
-pasar los 1025 tests y llevar tres palabras en chino en medio de una frase en
+pasar los 1065 tests y llevar tres palabras en chino en medio de una frase en
 español: no hay error de sintaxis que lo delate. Ha pasado siete veces en este
 proyecto. Los símbolos que sí se usan a propósito (flechas, `§`, `°`, `❤`) están
 en la lista de permitidos del script, cada uno con su motivo, para que ampliar la

@@ -111,6 +111,28 @@ la semana del reloj.
 
 ---
 
+## Integración de punta a punta
+
+### Añadido
+- **Flujo completo con `App` montada y fecha simulada**: bienvenida, "Comenzar", navegación al calendario, "Agregar evento", elegir una foto, guardar, y el evento apareciendo en el calendario, en la galería y en su detalle. Desde el detalle, editar el título y comprobar que cambia en pantalla y en el almacén, y borrarlo con su confirmación, viendo que la foto desaparece de la galería.
+- **Flujo de la idea convertida**: "Convertir en evento" sobre una idea del seed, con el título y la imagen heredados, la fecha escrita a mano, el aviso de que ya está en el calendario, y el evento nuevo visible en el calendario y en la galería. La idea se queda donde estaba.
+- **`doblarLienzo()`** en el arnés: doble de `createImageBitmap` y del `canvas`, que jsdom no trae. El `File` que entra es real y los bytes los comprueba la validación de verdad; lo que se dobla es solo el desenho, que en un navegador sin cabeza no se puede ejecutar.
+- **`elegirFoto()`**: pone un `File` real en el campo de archivo del formulario y dispara el `change`. `files` es de solo lectura, así que se sustituye entero.
+- **`botonDelDialogo()`**: busca el botón dentro del diálogo abierto. Hace falta porque "Agregar evento" está también en el calendario, detrás del formulario y antes en el documento: con el buscador global se pulsaría el de detrás, que no falla de forma visible.
+- **`disparar()` acepta opciones de evento.** Los que no burbujean (`error`, `load`) los escucha React en el elemento; `change` lo escucha en la raíz y hace falta `bubbles: true`.
+
+### Decisiones
+- **Los flujos van montados con `App`, no con la página suelta.** Con la página sola, `navegar()` cambia la URL pero no desmonta nada, y la prueba mediría un estado que en la app real no existe. Es la diferencia entre "el botón guarda" y "el botón guarda y la otra pantalla lo ve".
+- **El calendario se monta con `?mes=` explícito** y el reloj fijado a octubre, para que el mes que se enseña no dependa del día en que corra la suite.
+- **La idea que se convierte se lee del formulario, no de la lista antes de pulsarla.** Si el orden de las tarjetas cambia, la comprobación mediría otra idea y daría verde sin haber mirado la que se convirtió.
+- **La fecha de la idea llega vacía y se comprueba.** Es lo que impide que la conversión use hoy por su cuenta, y es el fallo más probable de este camino.
+
+### Verificación
+- 1065 comprobaciones, 0 fallos en las tres fechas simuladas (octubre, febrero y diciembre).
+- Los dos flujos se desmontan y se vuelven a montar por pantalla, como en la app de verdad: la página no se recarga sola al cambiar el almacén.
+
+---
+
 ## Auditoría de cabeceras y documentación
 
 ### Añadido
